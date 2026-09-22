@@ -1,18 +1,22 @@
 import argparse
 import logging
+
 from .dlt import fetcher as dlt_fetcher
+from .dlt import processor as dlt_processor
 
 logger = logging.getLogger(__name__)
 
 
-def _parse_args(argv: list[str] | None = None):
+def _parse_args(
+    argv: list[str] | None = None,
+):
     """解析命令行参数。
 
     Args:
-        argv (list[str] | None, optional): 命令行参数列表。
+        argv: 命令行参数列表。
 
     Returns:
-        argparse.Namespace: 解析后的命令行参数。
+        argparse.Namespace: 解析后的参数。
     """
 
     parser = argparse.ArgumentParser(
@@ -36,8 +40,23 @@ def _parse_args(argv: list[str] | None = None):
     )
 
     dlt_parser = sub_parsers.add_parser(
-        "dlt", description="体彩大乐透", help="体彩大乐透", add_help=False
+        "dlt",
+        description="体彩大乐透",
+        help="体彩大乐透",
+        add_help=False,
     )
+
+    dlt_parser.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help="显示帮助信息并退出",
+    )
+
+    # -------------------------------------------------------------------------
+    # raw 数据同步
+    # -------------------------------------------------------------------------
 
     dlt_parser.add_argument(
         "--full",
@@ -79,30 +98,44 @@ def _parse_args(argv: list[str] | None = None):
         help="最大抓取页数，默认 1000",
     )
 
+    # -------------------------------------------------------------------------
+    # processed 数据生成
+    # -------------------------------------------------------------------------
+
     dlt_parser.add_argument(
-        "-h",
-        "--help",
-        action="help",
-        default=argparse.SUPPRESS,
-        help="显示帮助信息并退出",
+        "--process",
+        action="store_true",
+        help=("数据处理，根据 raw/draws.json 生成 processed/draws.parquet"),
     )
 
     return parser.parse_args(argv)
 
 
-def _run_dlt(args: argparse.Namespace) -> None:
+def _run_dlt(
+    args: argparse.Namespace,
+) -> None:
     """执行 dlt 子命令。
 
     Args:
-        args (argparse.Namespace): 解析后的命令行参数。
+        args: 命令参数。
 
     Raises:
-        ValueError: 参数不合法时抛出。
-        RuntimeError: 数据同步失败时抛出。
+        ValueError: 参数错误。
+        RuntimeError: 执行失败。
     """
 
+    if args.process:
+        dlt_processor.build_processed_draws()
+
+        logger.info(
+            "processed 生成完成：%s",
+            dlt_processor.DLT_PROCESSED_DRAWS_FILE,
+        )
+
+        return
+
     # -------------------------------------------------------------------------
-    # 仅重建 meta。
+    # 仅重建 meta
     # -------------------------------------------------------------------------
 
     if args.rebuild_meta:
@@ -115,10 +148,14 @@ def _run_dlt(args: argparse.Namespace) -> None:
 
         return
 
+    # -------------------------------------------------------------------------
+    # 参数检查
+    # -------------------------------------------------------------------------
+
     if args.page_size <= 0:
         raise ValueError("--page-size 必须大于 0")
 
-    if args.page_size > dlt_fetcher.SPORTTERY_MAX_PAGE_SIZE:
+    if args.page_size > (dlt_fetcher.SPORTTERY_MAX_PAGE_SIZE):
         raise ValueError(f"--page-size 不能超过 {dlt_fetcher.SPORTTERY_MAX_PAGE_SIZE}")
 
     if args.sleep < 0:
@@ -131,7 +168,7 @@ def _run_dlt(args: argparse.Namespace) -> None:
         raise ValueError("--max-pages 必须大于 0")
 
     # -------------------------------------------------------------------------
-    # 强制全量同步。
+    # raw 同步
     # -------------------------------------------------------------------------
 
     if args.full:
@@ -141,10 +178,6 @@ def _run_dlt(args: argparse.Namespace) -> None:
             timeout=args.timeout,
             max_pages=args.max_pages,
         )
-
-    # -------------------------------------------------------------------------
-    # 默认：增量同步。
-    # -------------------------------------------------------------------------
 
     else:
         result = dlt_fetcher.incremental_sync(
@@ -160,23 +193,21 @@ def _run_dlt(args: argparse.Namespace) -> None:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+) -> int:
     """程序入口。
 
     Args:
-        argv (list[str] | None, optional): 命令行参数列表。
+        argv: 命令行参数。
 
     Returns:
-        int: 退出码。0 表示成功，1 表示失败。
-
-    Raises:
-        ValueError: 参数不合法时抛出。
-        Exception：执行失败抛出。
+        int: 退出码。
     """
 
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format=("%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
         force=True,
     )
 
@@ -186,13 +217,23 @@ def main(argv: list[str] | None = None) -> int:
         match args.command:
             case "dlt":
                 _run_dlt(args)
+
             case _:
-                # 理论上不会走到这里
                 raise ValueError(f"未知命令: {args.command}")
+
     except Exception as e:
-        logger.error("执行失败：%s", e)
-        logger.debug("详细堆栈：", exc_info=True)
+        logger.error(
+            "执行失败：%s",
+            e,
+        )
+
+        logger.debug(
+            "详细堆栈：",
+            exc_info=True,
+        )
+
         return 1
+
     return 0
 
 

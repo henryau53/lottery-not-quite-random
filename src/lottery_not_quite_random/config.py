@@ -30,3 +30,7 @@ DLT_DATA_DIR = PROJECT_ROOT / "data" / "dlt"
 DLT_RAW_DIR = DLT_DATA_DIR / "raw"
 DLT_RAW_DRAWS_FILE = DLT_RAW_DIR / "draws.json"
 DLT_RAW_META_FILE = DLT_RAW_DIR / "meta.json"
+
+# 处理后的数据目录
+DLT_PROCESSED_DIR = DLT_DATA_DIR / "processed"
+DLT_PROCESSED_DRAWS_FILE = DLT_PROCESSED_DIR / "draws.parquet"
