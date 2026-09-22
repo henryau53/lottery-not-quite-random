@@ -3,15 +3,20 @@ name = "lottery-not-quite-random"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "henryau", email = "henryau53@gmail.com" }
-]
+authors = [{ name = "henryau", email = "henryau53@gmail.com" }]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = ["requests>=2.34.2"]
 
 [project.scripts]
 lottery-not-quite-random = "lottery_not_quite_random:main"
 
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+default = true
+
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.ruff.lint]
+ignore = ["TRY002", "TRY004", "BLE001"]
