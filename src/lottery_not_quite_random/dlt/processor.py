@@ -17,9 +17,10 @@ processed 层 parquet 数据。
 """
 
 import logging
+from collections.abc import Callable
 from datetime import date
 from itertools import pairwise
-from typing import Any, Callable, TypeVar
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -92,38 +93,11 @@ DLT_PRIZE_SCHEMA = pa.schema(
         pa.field("prize_name", pa.string(), nullable=False),
         pa.field("prize_event_type", pa.string(), nullable=False),
         pa.field("prize_level_raw", pa.string(), nullable=False),
-        pa.field("stake_amount", pa.float64(), nullable=False),
+        pa.field("stake_amount", pa.float64(), nullable=True),
         pa.field("stake_count", pa.int64(), nullable=False),
         pa.field("total_prize_amount", pa.float64(), nullable=False),
     ]
 )
-
-
-# =============================================================================
-# Utility functions
-# =============================================================================
-
-_NumberT = TypeVar("_NumberT", int, float)
-
-
-def grouped_number_to_number(
-    value: Any, type_func: Callable[[Any], _NumberT] = int
-) -> _NumberT:
-    """将分组数值转换为数值。
-
-    例如：12,345 转换为 12345
-
-    Args:
-        value (Any): 需转换的值
-        type_func (Any, optional): 需要转换的类型类，默认 int
-
-    Returns:
-        Any | 0: 转换后的数值；无法解析时返回 0。
-    """
-    if value in (None, "", "---", "-1"):
-        return type_func(0)
-
-    return type_func(str(value).replace(",", ""))
 
 
 # =============================================================================
@@ -159,6 +133,31 @@ VALID_PRIZE_EVENT_TYPES = {
     "additional_bonus",
     "unknown",
 }
+
+
+# =============================================================================
+# Utility functions
+# =============================================================================
+
+
+def parse_numeric_value[NumberT: (int, float)](
+    value: Any, type_func: Callable[[Any], NumberT] = int
+) -> NumberT | None:
+    """将分组数值转换为数值。
+
+    例如：12,345 转换为 12345
+
+    Args:
+        value (Any): 需转换的值
+        type_func (Any, optional): 需要转换的类型类，默认 int
+
+    Returns:
+        Any | 0: 转换后的数值；无法转换时返回 None。
+    """
+    if value in (None, "", "---", "-1"):
+        return None
+
+    return type_func(str(value).replace(",", ""))
 
 
 # =============================================================================
@@ -245,7 +244,7 @@ def validate_prize_record(
 
     if not isinstance(
         stake_count,
-        int,
+        (float, int),
     ):
         raise ValueError(f"中奖注数类型错误: {prize}")
 
@@ -254,20 +253,14 @@ def validate_prize_record(
 
     stake_amount = prize.get("stake_amount")
 
-    if not isinstance(
-        stake_amount,
-        float,
-    ):
-        raise ValueError(f"单注奖金金额类型错误: {prize}")
-
-    if stake_amount < 0:
+    if stake_amount is not None and stake_amount < 0:
         raise ValueError(f"单注奖金金额异常: {stake_amount}")
 
     total_amount = prize.get("total_prize_amount")
 
     if not isinstance(
         total_amount,
-        float,
+        (float, int),
     ):
         raise ValueError(f"总奖金金额类型错误: {prize}")
 
@@ -498,7 +491,10 @@ def process_draw_records(
 
     result = []
 
-    for index, record in enumerate(records):
+    # 按照开奖期号升序排序，保证下方 index 的顺序
+    sorted_records = sorted(records, key=lambda r: int(r["lotteryDrawNum"]))
+
+    for index, record in enumerate(sorted_records):
         result.append(
             transform_draw_record(
                 record,
@@ -509,7 +505,7 @@ def process_draw_records(
     return result
 
 
-def write_parquet(
+def write_draws_parquet(
     records: list[dict[str, Any]],
 ) -> None:
     """写入 draws.parquet 文件。
@@ -540,7 +536,7 @@ def write_parquet(
     )
 
 
-def transform_prize_records(
+def transform_prize_record(
     record: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """转换单期开奖奖金数据。
@@ -577,11 +573,9 @@ def transform_prize_records(
             "prize_name": prize_name,
             "prize_event_type": parse_prize_event_type(prize_level_raw),
             "prize_level_raw": prize_level_raw,
-            "stake_amount": grouped_number_to_number(
-                prize.get("stakeAmountFormat"), float
-            ),
-            "stake_count": grouped_number_to_number(prize.get("stakeCount", 0), int),
-            "total_prize_amount": grouped_number_to_number(
+            "stake_amount": parse_numeric_value(prize.get("stakeAmountFormat"), float),
+            "stake_count": parse_numeric_value(prize.get("stakeCount", 0), int),
+            "total_prize_amount": parse_numeric_value(
                 prize.get("totalPrizeamount"), float
             ),
         }
@@ -611,7 +605,7 @@ def process_prize_records(
     result = []
 
     for record in records:
-        result.extend(transform_prize_records(record))
+        result.extend(transform_prize_record(record))
 
     return result
 
@@ -673,14 +667,19 @@ def build_processed() -> None:
 
     records = load_json(DLT_RAW_DRAWS_FILE)
 
-    if not isinstance(records, list):
-        raise ValueError("raw/draws.json 必须是 list")
-
     if not records:
         raise RuntimeError("raw/draws.json 为空")
 
+    if not isinstance(records, list):
+        raise ValueError("raw/draws.json 必须是 list")
+
+    issues = [record["lotteryDrawNum"] for record in records]
+
+    if len(set(issues)) != len(issues):
+        raise ValueError("raw/draws.json 存在重复开奖期号记录")
+
     processed_draws = process_draw_records(records)
-    write_parquet(processed_draws)
+    write_draws_parquet(processed_draws)
 
     processed_prizes = process_prize_records(records)
     write_prizes_parquet(processed_prizes)
