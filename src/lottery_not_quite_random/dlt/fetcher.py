@@ -1,9 +1,29 @@
+"""大乐透原始数据获取模块。
+
+该模块负责从中国体育彩票官方接口获取超级大乐透（gameNo=85）
+历史开奖数据，并维护项目 raw 数据层。
+
+数据流程：
+
+    Sporttery API
+          |
+          v
+    dlt.fetcher
+          |
+          v
+    data/dlt/raw/
+          |
+          +-- draws.json
+          |
+          +-- meta.json
+"""
+
 import logging
 import time
-from ..config import DLT_RAW_DRAWS_FILE, DLT_RAW_META_FILE
 
 import requests
 
+from ..config import DLT_RAW_DRAWS_FILE, DLT_RAW_META_FILE
 from ..utils import atomic_write_json, load_json, utc_now_iso
 
 logger = logging.getLogger(__name__)
