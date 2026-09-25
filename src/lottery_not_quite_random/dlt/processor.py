@@ -1,4 +1,4 @@
-"""大乐透 processed 数据生成模块。
+"""大乐透 processed 数据预处理生成模块。
 
 该模块负责将 raw 层的大乐透开奖数据转换为
 processed 层 parquet 数据。
@@ -10,82 +10,25 @@ processed 层 parquet 数据。
               v
         processor.py
               |
-              v
-    data/dlt/processed/draws.parquet
-
-
-主要职责：
-
-- 读取 raw/draws.json。
-- 解析官方开奖字符串。
-- 转换为结构化开奖事实数据。
-- 生成基础统计字段。
-- 执行数据质量检查。
-- 输出稳定 schema 的 parquet 文件。
-
-
-设计原则：
-
-- 不修改 raw 数据。
-- 不依赖数据库。
-- 不依赖 DuckDB。
-- processed 层只保存开奖事实数据。
-- 不生成依赖历史窗口的 feature。
-
-
-字段设计参考：
-
-dlt_draws schema：
-
-- issue
-- draw_date
-- draw_result
-
-- red_1 ~ red_5
-- blue_1 ~ blue_2
-
-- red_sum
-- red_span
-- blue_sum
-- blue_span
-
-- red_odd_count
-- red_even_count
-- blue_odd_count
-- blue_even_count
-
-- red_zone_1_count
-- red_zone_2_count
-- red_zone_3_count
-
-- red_consecutive_group_count
-- red_max_consecutive_length
-
-- year
-- month
-- day_of_week
-
-- draw_index
-
-
-不负责：
-
-- 数据采集（fetcher）
-- 特征工程（features）
-- 统计分析（analysis）
-- 模型训练（models）
+        +-----+-----+
+        |           |
+        v           v
+ draws.parquet  prizes.parquet
 """
 
 import logging
 from datetime import date
 from itertools import pairwise
-from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..config import DLT_PROCESSED_DRAWS_FILE, DLT_RAW_DRAWS_FILE
+from ..config import (
+    DLT_PROCESSED_DRAWS_FILE,
+    DLT_PROCESSED_PRIZES_FILE,
+    DLT_RAW_DRAWS_FILE,
+)
 from ..utils import load_json
 
 logger = logging.getLogger(__name__)
@@ -138,6 +81,84 @@ DLT_DRAW_SCHEMA = pa.schema(
         pa.field("draw_index", pa.int32(), nullable=False),
     ]
 )
+
+
+DLT_PRIZE_SCHEMA = pa.schema(
+    [
+        pa.field("issue", pa.string(), nullable=False),
+        pa.field("draw_date", pa.date32(), nullable=False),
+        pa.field("rule_version", pa.string(), nullable=False),
+        pa.field("prize_rank", pa.int32(), nullable=False),
+        pa.field("prize_name", pa.string(), nullable=False),
+        pa.field("prize_event_type", pa.string(), nullable=False),
+        pa.field("prize_level_raw", pa.string(), nullable=False),
+        pa.field("stake_amount", pa.float64(), nullable=False),
+        pa.field("stake_count", pa.int64(), nullable=False),
+        pa.field("total_prize_amount", pa.float64(), nullable=False),
+    ]
+)
+
+
+# =============================================================================
+# Utility functions
+# =============================================================================
+
+_NumberT = TypeVar("_NumberT", int, float)
+
+
+def grouped_number_to_number(
+    value: Any, type_func: Callable[[Any], _NumberT] = int
+) -> _NumberT:
+    """将分组数值转换为数值。
+
+    例如：12,345 转换为 12345
+
+    Args:
+        value (Any): 需转换的值
+        type_func (Any, optional): 需要转换的类型类，默认 int
+
+    Returns:
+        Any | 0: 转换后的数值；无法解析时返回 0。
+    """
+    if value in (None, "", "---", "-1"):
+        return type_func(0)
+
+    return type_func(str(value).replace(",", ""))
+
+
+# =============================================================================
+# PRIZE ENUMERATIONS
+# =============================================================================
+
+
+PRIZE_RANK_MAPPING = {
+    "一等奖": 1,
+    "二等奖": 2,
+    "三等奖": 3,
+    "四等奖": 4,
+    "五等奖": 5,
+    "六等奖": 6,
+    "七等奖": 7,
+    "八等奖": 8,
+    "九等奖": 9,
+}
+
+
+PRIZE_RULE_TIMELINE = [
+    (None, "14051", "v1"),
+    ("14052", "19018", "v2"),
+    ("19019", "26013", "v3"),
+    ("26014", None, "v4"),
+]
+
+
+VALID_PRIZE_EVENT_TYPES = {
+    "basic_prize",
+    "additional_prize",
+    "basic_bonus",
+    "additional_bonus",
+    "unknown",
+}
 
 
 # =============================================================================
@@ -195,6 +216,65 @@ def validate_blue_numbers(
         raise ValueError(f"后区号码未排序: {blue}")
 
 
+def validate_prize_record(
+    prize: dict[str, Any],
+) -> None:
+    """验证单条奖金记录。
+
+    Args:
+        prize:
+            已解析后的奖金记录。
+
+    Raises:
+        ValueError:
+            奖金字段不符合预期规则时抛出。
+    """
+
+    prize_rank = prize.get("prize_rank")
+
+    if not isinstance(
+        prize_rank,
+        int,
+    ):
+        raise ValueError(f"奖级编号类型错误: {prize}")
+
+    if not 1 <= prize_rank <= 9:
+        raise ValueError(f"奖级编号超出范围: {prize_rank}")
+
+    stake_count = prize.get("stake_count")
+
+    if not isinstance(
+        stake_count,
+        int,
+    ):
+        raise ValueError(f"中奖注数类型错误: {prize}")
+
+    if stake_count < 0:
+        raise ValueError(f"中奖注数异常: {stake_count}")
+
+    stake_amount = prize.get("stake_amount")
+
+    if not isinstance(
+        stake_amount,
+        float,
+    ):
+        raise ValueError(f"单注奖金金额类型错误: {prize}")
+
+    if stake_amount < 0:
+        raise ValueError(f"单注奖金金额异常: {stake_amount}")
+
+    total_amount = prize.get("total_prize_amount")
+
+    if not isinstance(
+        total_amount,
+        float,
+    ):
+        raise ValueError(f"总奖金金额类型错误: {prize}")
+
+    if total_amount < 0:
+        raise ValueError(f"总奖金金额异常: {total_amount}")
+
+
 def calculate_consecutive_features(
     numbers: list[int],
 ) -> tuple[int, int]:
@@ -248,6 +328,67 @@ def calculate_consecutive_features(
     return group_count, max_length
 
 
+def get_prize_rule_version(issue: str) -> str:
+    """根据期号获取奖级规则版本。
+
+    Args:
+        issue (str): 期号
+
+    Raises:
+        ValueError: 无法确定奖级规则版本
+
+    Returns:
+        str: 奖级规则版本
+    """
+    issue_number = int(issue)
+
+    for start, end, version in PRIZE_RULE_TIMELINE:
+        if start is not None and issue_number < int(start):
+            continue
+        if end is not None and issue_number > int(end):
+            continue
+        return version
+
+    raise ValueError(f"无法确定奖级规则版本: {issue}")
+
+
+def parse_prize_name(prize_level: str) -> tuple[int, str]:
+    """解析奖级编号和标准名称。
+
+    Args:
+        prize_level (str): raw 中 prizeLevel 奖级名称值
+
+    Raises:
+        ValueError: 未知奖级
+
+    Returns:
+        tuple[int, str]: (奖级序号, 标准化奖级名称)
+    """
+    for name, rank in PRIZE_RANK_MAPPING.items():
+        if name in prize_level:
+            return rank, name
+
+    raise ValueError(f"未知奖级: {prize_level}")
+
+
+def parse_prize_event_type(prize_level: str) -> str:
+    """解析奖金事件类型。
+
+    Args:
+        prize_level (str): raw 中 prizeLevel 奖级名称值
+
+    Returns:
+        str: 奖金事件类型值
+    """
+    if "追加派奖" in prize_level:
+        return "additional_bonus"
+    if "派奖" in prize_level:
+        return "basic_bonus"
+    if "追加" in prize_level:
+        return "additional_prize"
+    return "basic_prize"
+
+
 # =============================================================================
 # Transform
 # =============================================================================
@@ -279,18 +420,18 @@ def parse_draw_result(
     return red, blue
 
 
-def transform_record(
+def transform_draw_record(
     record: dict[str, Any],
     draw_index: int,
 ) -> dict[str, Any]:
-    """转换单条 raw 数据。
+    """转换单期开奖号码数据。
 
     Args:
-        record: raw 开奖记录。
+        record: 单期开奖记录。
         draw_index: 数据索引。
 
     Returns:
-        dict: processed 数据记录。
+        dict: processed 开奖号码数据记录。
     """
 
     draw_result = record.get("lotteryDrawResult")
@@ -343,23 +484,23 @@ def transform_record(
 # =============================================================================
 
 
-def process_records(
+def process_draw_records(
     records: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """转换全部 raw 数据。
+    """转换全部开奖号码数据。
 
     Args:
-        records: raw 数据列表。
+        records: 开奖号码数据列表。
 
     Returns:
-        list: processed 数据列表。
+        list: processed 开奖号码数据列表。
     """
 
     result = []
 
     for index, record in enumerate(records):
         result.append(
-            transform_record(
+            transform_draw_record(
                 record,
                 index,
             )
@@ -371,10 +512,10 @@ def process_records(
 def write_parquet(
     records: list[dict[str, Any]],
 ) -> None:
-    """写入 parquet 文件。
+    """写入 draws.parquet 文件。
 
     Args:
-        records: processed 数据。
+        records: processed 开奖号码数据。
     """
 
     table = pa.Table.from_pylist(
@@ -394,19 +535,141 @@ def write_parquet(
     )
 
     logger.info(
-        "生成 parquet 完成: %s",
+        "生成开奖号码 parquet 完成: %s",
         DLT_PROCESSED_DRAWS_FILE,
     )
 
 
-def build_processed_draws() -> None:
-    """构建大乐透 processed parquet。
+def transform_prize_records(
+    record: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """转换单期开奖奖金数据。
+
+    Args:
+        record: raw 层单期开奖数据。
+
+    Returns:
+        当前开奖期所有奖级记录。
 
     Raises:
-        RuntimeError: raw 数据为空时抛出。
+        ValueError:
+            raw 数据缺少必要字段或奖级无法解析。
     """
+    issue = str(record["lotteryDrawNum"])
+    draw_date = date.fromisoformat(record["lotteryDrawTime"])
+    rule_version = get_prize_rule_version(issue)
 
-    logger.info("开始生成大乐透 processed 数据")
+    result = []
+
+    for prize in record.get("prizeLevelList", []):
+        prize_level_raw = str(prize.get("prizeLevel", ""))
+
+        if not prize_level_raw:
+            raise ValueError(f"{issue} 存在空奖级")
+
+        prize_rank, prize_name = parse_prize_name(prize_level_raw)
+
+        item = {
+            "issue": issue,
+            "draw_date": draw_date,
+            "rule_version": rule_version,
+            "prize_rank": prize_rank,
+            "prize_name": prize_name,
+            "prize_event_type": parse_prize_event_type(prize_level_raw),
+            "prize_level_raw": prize_level_raw,
+            "stake_amount": grouped_number_to_number(
+                prize.get("stakeAmountFormat"), float
+            ),
+            "stake_count": grouped_number_to_number(prize.get("stakeCount", 0), int),
+            "total_prize_amount": grouped_number_to_number(
+                prize.get("totalPrizeamount"), float
+            ),
+        }
+
+        validate_prize_record(item)
+        result.append(item)
+
+    return result
+
+
+def process_prize_records(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """转换全部开奖奖金数据。
+
+    Args:
+        records:
+            raw 层开奖记录列表。
+
+    Returns:
+        processed 层奖金记录列表。
+
+    Raises:
+        RuntimeError:
+            未生成任何奖金记录。
+    """
+    result = []
+
+    for record in records:
+        result.extend(transform_prize_records(record))
+
+    return result
+
+
+def write_prizes_parquet(
+    records: list[dict[str, Any]],
+) -> None:
+    """写入 prizes.parquet 文件。
+
+    Args:
+        records:
+            已处理后的奖金结构化数据。
+
+    Raises:
+        ValueError:
+            数据无法匹配 DLT_PRIZE_SCHEMA。
+    """
+    table = pa.Table.from_pylist(
+        records,
+        schema=DLT_PRIZE_SCHEMA,
+    )
+
+    DLT_PROCESSED_PRIZES_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    pq.write_table(
+        table,
+        DLT_PROCESSED_PRIZES_FILE,
+        compression="zstd",
+    )
+
+    logger.info(
+        "生成奖金 parquet 完成: %s",
+        DLT_PROCESSED_PRIZES_FILE,
+    )
+
+
+def build_processed() -> None:
+    """构建大乐透 processed 层 parquet 数据。
+
+    同时生成：
+
+    - draws.parquet:
+        开奖事实数据。
+
+    - prizes.parquet:
+        奖金分布数据。
+
+    Raises:
+        ValueError:
+            raw 数据格式错误。
+
+        RuntimeError:
+            raw 数据为空。
+    """
+    logger.info("开始生成大乐透预处理数据")
 
     records = load_json(DLT_RAW_DRAWS_FILE)
 
@@ -416,11 +679,14 @@ def build_processed_draws() -> None:
     if not records:
         raise RuntimeError("raw/draws.json 为空")
 
-    processed_records = process_records(records)
+    processed_draws = process_draw_records(records)
+    write_parquet(processed_draws)
 
-    write_parquet(processed_records)
+    processed_prizes = process_prize_records(records)
+    write_prizes_parquet(processed_prizes)
 
     logger.info(
-        "处理完成，共 %s 条记录",
-        len(processed_records),
+        "处理完成，共 %s 条开奖记录，共 %s 条奖金记录",
+        len(processed_draws),
+        len(processed_prizes),
     )

@@ -16,60 +16,6 @@
           +-- draws.json
           |
           +-- meta.json
-
-
-主要职责：
-
-- 请求 Sporttery 历史开奖 API。
-- 执行大乐透历史数据全量抓取。
-- 执行基于期号的增量同步。
-- 校验 API 返回数据结构。
-- 校验开奖记录完整性。
-- 合并新增开奖记录。
-- 原子写入 raw/draws.json。
-- 根据 raw 数据生成 raw/meta.json。
-
-
-数据设计原则：
-
-- raw 层保存接近官方 API 的原始开奖记录。
-- 不修改官方字段名称。
-- 不进行号码解析和统计计算。
-- 不生成分析特征。
-- meta.json 仅用于数据状态记录和同步辅助，
-  不作为历史开奖数据唯一来源。
-
-
-首次运行：
-
-    无 raw/draws.json
-            |
-            v
-    full_sync()
-
-已有数据：
-
-    raw/draws.json
-            |
-            v
-    incremental_sync()
-
-
-增量同步逻辑：
-
-- API 按开奖时间倒序返回数据。
-- 从第一页开始寻找本地已知期号。
-- 收集本地不存在的新期号。
-- 遇到已存在期号后停止。
-- 如果无法找到本地游标，则中止同步，避免产生不完整 raw 数据。
-
-
-不负责：
-
-- 数据清洗（processed layer）
-- 特征工程（features layer）
-- 统计分析（analysis layer）
-- 模型训练（models layer）
 """
 
 import logging

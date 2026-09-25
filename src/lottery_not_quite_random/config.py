@@ -34,3 +34,4 @@ DLT_RAW_META_FILE = DLT_RAW_DIR / "meta.json"
 # 处理后的数据目录
 DLT_PROCESSED_DIR = DLT_DATA_DIR / "processed"
 DLT_PROCESSED_DRAWS_FILE = DLT_PROCESSED_DIR / "draws.parquet"
+DLT_PROCESSED_PRIZES_FILE = DLT_PROCESSED_DIR / "prizes.parquet"

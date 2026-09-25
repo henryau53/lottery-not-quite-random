@@ -105,7 +105,7 @@ def _parse_args(
     dlt_parser.add_argument(
         "--process",
         action="store_true",
-        help=("数据处理，根据 raw/draws.json 生成 processed/draws.parquet"),
+        help=("对原始数据进行预处理，根据 raw/draws.json 生成 processed 数据"),
     )
 
     return parser.parse_args(argv)
@@ -125,12 +125,9 @@ def _run_dlt(
     """
 
     if args.process:
-        dlt_processor.build_processed_draws()
+        dlt_processor.build_processed()
 
-        logger.info(
-            "processed 生成完成：%s",
-            dlt_processor.DLT_PROCESSED_DRAWS_FILE,
-        )
+        logger.info("数据预处理完成")
 
         return
 
@@ -225,10 +222,6 @@ def main(
         logger.error(
             "执行失败：%s",
             e,
-        )
-
-        logger.debug(
-            "详细堆栈：",
             exc_info=True,
         )
 
