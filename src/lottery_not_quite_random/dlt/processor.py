@@ -56,6 +56,26 @@ DLT_DRAW_SCHEMA = pa.schema(
             pa.string(),
             nullable=False,
         ),
+        pa.field(
+            "draw_result_unsorted",
+            pa.string(),
+            nullable=True,
+        ),
+        pa.field(
+            "total_sale_amount",
+            pa.float64(),
+            nullable=True,
+        ),
+        pa.field(
+            "pool_balance",
+            pa.float64(),
+            nullable=True,
+        ),
+        pa.field(
+            "pool_balance_afterdraw",
+            pa.float64(),
+            nullable=True,
+        ),
         pa.field("red_1", pa.int32(), nullable=False),
         pa.field("red_2", pa.int32(), nullable=False),
         pa.field("red_3", pa.int32(), nullable=False),
@@ -445,6 +465,22 @@ def transform_draw_record(
         "issue": str(record["lotteryDrawNum"]),
         "draw_date": draw_date,
         "draw_result": draw_result,
+        "draw_result_unsorted": record.get("lotteryUnsortDrawresult") or None,
+        "total_sale_amount": parse_numeric_value(
+            record.get("totalSaleAmount"),
+            float,
+        )
+        or None,
+        "pool_balance": parse_numeric_value(
+            record.get("poolBalance"),
+            float,
+        )
+        or None,
+        "pool_balance_afterdraw": parse_numeric_value(
+            record.get("poolBalanceAfterdraw"),
+            float,
+        )
+        or None,
         "red_1": red[0],
         "red_2": red[1],
         "red_3": red[2],
