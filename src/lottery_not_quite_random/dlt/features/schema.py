@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
 
 DRAW_ID_COLUMNS = ("draw_index", "issue", "draw_date")
+
 NUMBER_ID_COLUMNS = (
     "draw_index",
     "issue",
@@ -13,6 +13,7 @@ NUMBER_ID_COLUMNS = (
     "number_zone",
     "number",
 )
+
 PRIZE_ID_COLUMNS = (
     "draw_index",
     "issue",
@@ -89,9 +90,10 @@ def build_number_schema(feature_columns: list[str]) -> FeatureSchema:
     return FeatureSchema(
         required_columns=(*NUMBER_ID_COLUMNS, *feature_columns),
         feature_columns=tuple(feature_columns),
-        nullable_columns=("missing_current", *[
-            name for name in feature_columns if name.startswith("frequency_")
-        ]),
+        nullable_columns=(
+            "missing_current",
+            *[name for name in feature_columns if name.startswith("frequency_")],
+        ),
     )
 
 

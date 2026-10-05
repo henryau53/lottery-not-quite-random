@@ -153,7 +153,7 @@ def build_draw_context(draws_df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         包含 rule_version、is_bonus_period 和 bonus_campaign_id 的 DataFrame。
     """
-    context_df = draws_df.loc[:, ["draw_index", "issue"]].copy()
+    context_df = draws_df.loc[:, ["draw_index", "issue", "draw_date"]].copy()
 
     issue_numbers = pd.to_numeric(
         context_df["issue"],

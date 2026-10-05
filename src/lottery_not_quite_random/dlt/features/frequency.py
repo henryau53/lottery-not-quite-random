@@ -43,9 +43,9 @@ def build_frequency_features(
         occurrence_df = _build_occurrence_matrix(draws_df, zone, numbers)
 
         rolling_cache = {
-            window: occurrence_df.rolling(window=window, min_periods=window)
+            window: occurrence_df.shift(1)
+            .rolling(window=window, min_periods=window)
             .sum()
-            .shift(1)
             for window in windows
         }
 

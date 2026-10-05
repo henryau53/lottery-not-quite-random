@@ -74,15 +74,24 @@ def build_features() -> dict[str, Path]:
         prize_path,
     )
 
-    draws_df = validate_draw_input(pd.read_parquet(draw_path))
+    draws_df = (
+        pd.read_parquet(draw_path)
+        .copy()
+        .sort_values("draw_index", kind="mergesort", ignore_index=True)
+    )
+    validate_draw_input(draws_df)
 
-    prizes_df = validate_prize_input(pd.read_parquet(prize_path))
+    prizes_df = pd.read_parquet(prize_path).copy()
+    validate_prize_input(prizes_df)
 
     LOGGER.info(
-        "输入范围: draw_index=%s..%s, rows=%d",
-        draws_df["draw_index"].min(),
-        draws_df["draw_index"].max(),
+        "开奖数据输入: rows=%d",
         len(draws_df),
+    )
+
+    LOGGER.info(
+        "奖金数据输入: rows=%d",
+        len(prizes_df),
     )
 
     # -------------------------------------------------------------------------
@@ -99,16 +108,14 @@ def build_features() -> dict[str, Path]:
 
     repeat_history_df = build_repeat_history_features(draws_df, FEATURE_REPEAT_WINDOWS)
 
-    draw_features = rolling_df.merge(
-        repeat_history_df,
+    draw_features = context_df.merge(
+        rolling_df,
         on=["draw_index", "issue", "draw_date"],
         how="left",
         validate="one_to_one",
-    )
-
-    draw_features = draw_features.merge(
-        context_df,
-        on="draw_index",
+    ).merge(
+        repeat_history_df,
+        on=["draw_index", "issue", "draw_date"],
         how="left",
         validate="one_to_one",
     )
@@ -270,23 +277,23 @@ def build_features() -> dict[str, Path]:
     #     "prize_features",
     # )
 
-    # # -------------------------------------------------------------------------
-    # # Output paths
-    # # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Output paths
+    # -------------------------------------------------------------------------
 
-    # DLT_FEATURE_DIR.mkdir(
-    #     parents=True,
-    #     exist_ok=True,
-    # )
+    DLT_FEATURE_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    # # -------------------------------------------------------------------------
-    # # Write Feature outputs
-    # # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Write Feature outputs
+    # -------------------------------------------------------------------------
 
-    # draw_features.to_parquet(
-    #     DLT_FEATURE_DRAW_FILE,
-    #     index=False,
-    # )
+    draw_features.to_parquet(
+        DLT_FEATURE_DRAW_FILE,
+        index=False,
+    )
 
     # number_features.to_parquet(
     #     DLT_FEATURE_NUMBER_FILE,

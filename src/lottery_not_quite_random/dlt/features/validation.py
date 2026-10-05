@@ -12,15 +12,12 @@ from .schema import DRAW_REQUIRED_INPUT_COLUMNS, PRIZE_REQUIRED_INPUT_COLUMNS
 LOGGER = logging.getLogger(__name__)
 
 
-def validate_draw_input(draws_df: pd.DataFrame) -> pd.DataFrame:
-    """验证并标准化 processed draws 输入。
+def validate_draw_input(draws_df: pd.DataFrame) -> None:
+    """验证 processed draws 数据。
 
     Args:
         draws_df:
             processed/draws.parquet。
-
-    Returns:
-        按 draw_index 升序、索引重置后的 DataFrame。
 
     Raises:
         ValueError:
@@ -34,52 +31,47 @@ def validate_draw_input(draws_df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"draws 缺少 required columns: {missing}")
 
-    result = draws_df.copy()
-    result = result.sort_values("draw_index", kind="mergesort", ignore_index=True)
+    expected_index = list(range(len(draws_df)))
+    actual_index = draws_df["draw_index"].astype(int).tolist()
 
-    expected_index = list(range(len(result)))
-    actual_index = result["draw_index"].astype(int).tolist()
     if actual_index != expected_index:
         raise ValueError("draw_index 必须从 0 开始连续递增。")
 
-    if result["issue"].duplicated().any():
+    if draws_df["issue"].duplicated().any():
         raise ValueError("issue 必须唯一。")
 
-    if result["draw_date"].isna().any():
+    if draws_df["draw_date"].isna().any():
         raise ValueError("draw_date 不允许为空。")
 
     for column in [
         *(f"red_{i}" for i in range(1, 6)),
         *(f"blue_{i}" for i in range(1, 3)),
     ]:
-        if result[column].isna().any():
+        if draws_df[column].isna().any():
             raise ValueError(f"{column} 不允许为空。")
 
     red_columns = [f"red_{i}" for i in range(1, 6)]
     blue_columns = [f"blue_{i}" for i in range(1, 3)]
 
-    if not result[red_columns].apply(lambda col: col.between(1, 35)).all().all():
+    if not draws_df[red_columns].apply(lambda col: col.between(1, 35)).all().all():
         raise ValueError("red 号码存在非法值。")
-    if not result[blue_columns].apply(lambda col: col.between(1, 12)).all().all():
+
+    if not draws_df[blue_columns].apply(lambda col: col.between(1, 12)).all().all():
         raise ValueError("blue 号码存在非法值。")
 
-    if result[red_columns].apply(lambda row: row.nunique() != 5, axis=1).any():
+    if draws_df[red_columns].apply(lambda row: row.nunique() != 5, axis=1).any():
         raise ValueError("单期开奖 red 号码必须互不重复。")
-    if result[blue_columns].apply(lambda row: row.nunique() != 2, axis=1).any():
+
+    if draws_df[blue_columns].apply(lambda row: row.nunique() != 2, axis=1).any():
         raise ValueError("单期开奖 blue 号码必须互不重复。")
 
-    return result
 
-
-def validate_prize_input(prizes_df: pd.DataFrame) -> pd.DataFrame:
-    """验证 processed prizes 输入。
+def validate_prize_input(prizes_df: pd.DataFrame) -> None:
+    """验证 processed prizes 数据。
 
     Args:
         prizes_df:
             processed/prizes.parquet。
-
-    Returns:
-        复制后的 prizes DataFrame。
 
     Raises:
         ValueError:
@@ -93,10 +85,8 @@ def validate_prize_input(prizes_df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"prizes 缺少 required columns: {missing}")
 
-    result = prizes_df.copy()
-    if "draw_index" in result.columns and result["draw_index"].isna().any():
+    if "draw_index" in prizes_df.columns and prizes_df["draw_index"].isna().any():
         raise ValueError("prizes.draw_index 不允许为空。")
-    return result
 
 
 def validate_feature_output(

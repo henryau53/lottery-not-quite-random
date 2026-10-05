@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from ...config import FEATURE_DEFAULT_PREDICTIVE_SHIFT
+
 ROLLING_SOURCES: tuple[tuple[str, str], ...] = (
     ("red_sum", "red"),
     ("blue_sum", "blue"),
@@ -20,7 +22,7 @@ def build_rolling_features(
     draws_df: pd.DataFrame,
     windows: tuple[int, ...],
 ) -> pd.DataFrame:
-    """生成第一阶段 Draw-level rolling mean/std。
+    """生成 Draw-level rolling mean/std。
 
     Args:
         draws_df:
@@ -35,7 +37,8 @@ def build_rolling_features(
 
     for source_column, _ in ROLLING_SOURCES:
         source = draws_df[source_column].astype("float64")
-        shifted = source.shift(1)
+        shifted = source.shift(FEATURE_DEFAULT_PREDICTIVE_SHIFT)
+
         for window in windows:
             rolling = shifted.rolling(window=window, min_periods=window)
             output[f"{source_column}_mean_{window}"] = rolling.mean().to_numpy()
