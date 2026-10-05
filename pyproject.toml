@@ -24,4 +24,4 @@ requires = ["uv_build>=0.12.3,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.ruff.lint]
-ignore = ["TRY002", "TRY004", "BLE001"]
+ignore = ["TRY002", "TRY004", "BLE001", "SIM103", "SIM102"]
