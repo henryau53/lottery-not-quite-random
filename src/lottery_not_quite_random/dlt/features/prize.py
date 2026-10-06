@@ -1,4 +1,9 @@
-"""Prize-level Feature 构建。"""
+"""奖金级特征构建（Prize-level Feature 构建）。
+
+用于体彩大乐透 processed 数据的奖级级特征构建。第一阶段以 prizes 数据中的
+奖级记录为粒度，稳定保留奖级记录标识、开奖关联字段、原始奖金事实以及
+Draw-level 业务上下文，不新增具体奖级派生统计。
+"""
 
 from __future__ import annotations
 
@@ -12,32 +17,51 @@ def build_prize_features(
     prizes_df: pd.DataFrame,
     draw_context_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """构建第一阶段 Prize-level 输出。
+    """构建第一阶段 Prize-level 特征。
 
-    第一阶段不新增具体 Prize 派生统计，只稳定保留 prize record 粒度、
-    关联字段、原始奖金事实以及 Business Context。
+    以 prizes_df 的奖级记录为粒度，校验奖级上下文后，将其与 draw_context_df
+    提供的 Draw-level 业务上下文关联。若 prizes_df 缺少 draw_index，则通过
+    issue 从 draw_context_df 映射补全。关联字段包括 draw_index、rule_version、
+    is_bonus_period 和 bonus_campaign_id；合并过程中会处理同名列冲突，确保最终
+    采用业务上下文中的 is_bonus_period、bonus_campaign_id 和 rule_version。
+
+    第一阶段不新增具体 Prize 派生统计，只稳定保留 prize record 粒度、关联字段、
+    原始奖金事实以及 Business Context。
 
     Args:
         prizes_df:
-            processed/prizes.parquet。
+            processed/prizes.parquet 对应的奖级记录数据，需满足奖级上下文校验
+            要求，并包含 issue、prize_rank、prize_event_type 等字段；如缺少
+            draw_index，会通过 issue 从 draw_context_df 映射补全。
         draw_context_df:
-            Draw-level Business Context。
+            Draw-level 业务上下文数据，包含 draw_index、issue、rule_version、
+            is_bonus_period、bonus_campaign_id 等字段。
 
     Returns:
-        prize_features.parquet 对应的 DataFrame。
+        prize_features.parquet 对应的结果表。每行对应一条奖级记录，保留原始
+        奖金事实，并补充 draw_index、rule_version、is_bonus_period、
+        bonus_campaign_id 等业务上下文字段。列顺序优先使用 PRIZE_ID_COLUMNS，
+        其余列保持原有顺序；行按 draw_index、prize_rank、prize_event_type
+        稳定排序。
     """
     validate_prize_context(prizes_df)
 
-    context_columns = ["draw_index", "rule_version", "is_bonus_period", "bonus_campaign_id"]
+    context_columns = [
+        "draw_index",
+        "rule_version",
+        "is_bonus_period",
+        "bonus_campaign_id",
+    ]
     context = draw_context_df.loc[:, context_columns].copy()
 
     output = prizes_df.copy()
     if "draw_index" not in output.columns:
-        issue_to_index = (
-            draw_context_df.loc[:, ["issue", "draw_index"]]
-            .drop_duplicates("issue")
+        issue_to_index = draw_context_df.loc[
+            :, ["issue", "draw_index"]
+        ].drop_duplicates("issue")
+        output = output.merge(
+            issue_to_index, on="issue", how="left", validate="many_to_one"
         )
-        output = output.merge(issue_to_index, on="issue", how="left", validate="many_to_one")
 
     output = output.merge(
         context,

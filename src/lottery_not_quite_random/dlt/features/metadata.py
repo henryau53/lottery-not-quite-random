@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from ...config import (
-    FEATURE_DEFAULT_PREDICTIVE_SHIFT,
     FEATURE_CODE_VERSION,
     FEATURE_DEFINITION_VERSION,
-    FEATURE_METADATA_VERSION,
     FEATURE_FREQUENCY_WINDOWS,
+    FEATURE_METADATA_VERSION,
     FEATURE_REPEAT_WINDOWS,
     FEATURE_ROLLING_WINDOWS,
 )
@@ -40,7 +39,7 @@ def _base_metadata(
     research_role: list[str],
     availability: str = "pre_draw",
     includes_current_draw: bool = False,
-    shift: int = FEATURE_DEFAULT_PREDICTIVE_SHIFT,
+    shift: int = 1,
     leakage_rule: str = "仅能使用当前 draw_index 之前已经发生的数据。",
 ) -> dict[str, Any]:
     """创建单个 Feature Metadata。"""
@@ -288,7 +287,7 @@ def build_metadata_document(
             "rolling_windows": list(FEATURE_ROLLING_WINDOWS),
             "frequency_windows": list(FEATURE_FREQUENCY_WINDOWS),
             "repeat_windows": list(FEATURE_REPEAT_WINDOWS),
-            "predictive_shift": FEATURE_DEFAULT_PREDICTIVE_SHIFT,
+            "predictive_shift": 1,
         },
         "inputs": {str(path): file_sha256(path) for path in processed_paths},
         "outputs": {str(path): str(path) for path in output_paths},

@@ -98,9 +98,6 @@ FEATURE_FREQUENCY_WINDOWS: tuple[int, ...] = tuple(_FEATURE_CONFIG["frequency_wi
 # Number-level 重复历史特征使用的历史窗口
 FEATURE_REPEAT_WINDOWS: tuple[int, ...] = tuple(_FEATURE_CONFIG["repeat_windows"])
 
-# 默认预测性特征的时间偏移量，确保不使用当前开奖信息
-FEATURE_DEFAULT_PREDICTIVE_SHIFT = 1
-
 
 # ============================================================================
 # 数据字典

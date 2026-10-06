@@ -95,13 +95,13 @@ def build_features() -> dict[str, Path]:
     )
 
     # -------------------------------------------------------------------------
-    # Draw-level context
+    # 开奖级上下文构建
     # -------------------------------------------------------------------------
 
     context_df = build_draw_context(draws_df)
 
     # -------------------------------------------------------------------------
-    # Draw-level features
+    # 开奖级（Draw-level）特征值
     # -------------------------------------------------------------------------
 
     rolling_df = build_rolling_features(draws_df, FEATURE_ROLLING_WINDOWS)
@@ -125,118 +125,115 @@ def build_features() -> dict[str, Path]:
         kind="mergesort",
     ).reset_index(drop=True)
 
-    # # -------------------------------------------------------------------------
-    # # Number-level features
-    # # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 号码级（Number-level）特征值
+    # -------------------------------------------------------------------------
 
-    # frequency_df = build_frequency_features(
-    #     draws_df,
-    #     FEATURE_FREQUENCY_WINDOWS,
-    # )
+    frequency_df = build_frequency_features(draws_df, FEATURE_FREQUENCY_WINDOWS)
 
-    # missing_df = build_missing_features(draws_df)
+    missing_df = build_missing_features(draws_df)
 
-    # previous_df = build_prev_draw_hit(draws_df)
+    previous_df = build_prev_draw_hit(draws_df)
 
-    # number_features = frequency_df.merge(
-    #     missing_df,
-    #     on=[
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #         "number_zone",
-    #         "number",
-    #     ],
-    #     how="left",
-    #     validate="one_to_one",
-    # ).merge(
-    #     previous_df,
-    #     on=[
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #         "number_zone",
-    #         "number",
-    #     ],
-    #     how="left",
-    #     validate="one_to_one",
-    # )
+    number_features = frequency_df.merge(
+        missing_df,
+        on=[
+            "draw_index",
+            "issue",
+            "draw_date",
+            "number_zone",
+            "number",
+        ],
+        how="left",
+        validate="one_to_one",
+    ).merge(
+        previous_df,
+        on=[
+            "draw_index",
+            "issue",
+            "draw_date",
+            "number_zone",
+            "number",
+        ],
+        how="left",
+        validate="one_to_one",
+    )
 
-    # number_features = number_features.sort_values(
-    #     [
-    #         "draw_index",
-    #         "number_zone",
-    #         "number",
-    #     ],
-    #     kind="mergesort",
-    # ).reset_index(drop=True)
+    number_features = number_features.sort_values(
+        [
+            "draw_index",
+            "number_zone",
+            "number",
+        ],
+        kind="mergesort",
+    ).reset_index(drop=True)
 
-    # # -------------------------------------------------------------------------
-    # # Prize-level features
-    # # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 奖金级（Prize-level）特征值
+    # -------------------------------------------------------------------------
 
-    # prize_features = build_prize_features(
-    #     prizes_df,
-    #     context_df,
-    # )
+    prize_features = build_prize_features(
+        prizes_df,
+        context_df,
+    )
 
-    # # -------------------------------------------------------------------------
-    # # Feature columns
-    # # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Feature columns
+    # -------------------------------------------------------------------------
 
-    # draw_feature_columns = [
-    #     column
-    #     for column in draw_features.columns
-    #     if column
-    #     not in {
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #     }
-    # ]
+    draw_feature_columns = [
+        column
+        for column in draw_features.columns
+        if column
+        not in {
+            "draw_index",
+            "issue",
+            "draw_date",
+        }
+    ]
 
-    # number_feature_columns = [
-    #     column
-    #     for column in number_features.columns
-    #     if column
-    #     not in {
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #         "number_zone",
-    #         "number",
-    #     }
-    # ]
+    number_feature_columns = [
+        column
+        for column in number_features.columns
+        if column
+        not in {
+            "draw_index",
+            "issue",
+            "draw_date",
+            "number_zone",
+            "number",
+        }
+    ]
 
-    # prize_feature_columns = [
-    #     column
-    #     for column in prize_features.columns
-    #     if column
-    #     not in {
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #         "rule_version",
-    #         "prize_rank",
-    #         "prize_event_type",
-    #     }
-    # ]
+    prize_feature_columns = [
+        column
+        for column in prize_features.columns
+        if column
+        not in {
+            "draw_index",
+            "issue",
+            "draw_date",
+            "rule_version",
+            "prize_rank",
+            "prize_event_type",
+        }
+    ]
 
-    # # -------------------------------------------------------------------------
-    # # Schema validation
-    # # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Schema validation
+    # -------------------------------------------------------------------------
 
-    # build_draw_schema(draw_feature_columns).validate_columns(
-    #     draw_features.columns.tolist()
-    # )
+    build_draw_schema(draw_feature_columns).validate_columns(
+        draw_features.columns.tolist()
+    )
 
-    # build_number_schema(number_feature_columns).validate_columns(
-    #     number_features.columns.tolist()
-    # )
+    build_number_schema(number_feature_columns).validate_columns(
+        number_features.columns.tolist()
+    )
 
-    # build_prize_schema(prize_feature_columns).validate_columns(
-    #     prize_features.columns.tolist()
-    # )
+    build_prize_schema(prize_feature_columns).validate_columns(
+        prize_features.columns.tolist()
+    )
 
     # # -------------------------------------------------------------------------
     # # Feature output validation
@@ -295,10 +292,10 @@ def build_features() -> dict[str, Path]:
         index=False,
     )
 
-    # number_features.to_parquet(
-    #     DLT_FEATURE_NUMBER_FILE,
-    #     index=False,
-    # )
+    number_features.to_parquet(
+        DLT_FEATURE_NUMBER_FILE,
+        index=False,
+    )
 
     # prize_features.to_parquet(
     #     DLT_FEATURE_PRIZE_FILE,
