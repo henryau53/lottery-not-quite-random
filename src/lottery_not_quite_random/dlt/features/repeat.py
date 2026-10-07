@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ...config import BLUE_NUMBERS, RED_NUMBERS
+from ...config import BLUE_NUMBERS, FEATURE_REPEAT_WINDOWS, RED_NUMBERS
 
 
 def _number_set(row: pd.Series, zone: str) -> set[int]:
@@ -57,7 +57,6 @@ def calculate_repeat_count(a_row: pd.Series, b_row: pd.Series) -> int:
 
 def build_repeat_history_features(
     draws_df: pd.DataFrame,
-    windows: tuple[int, ...],
 ) -> pd.DataFrame:
     """生成历史相邻开奖重复数量的滚动均值特征。
 
@@ -68,9 +67,6 @@ def build_repeat_history_features(
     Args:
         draws_df:
             按 draw_index 升序排列的 processed draws。
-        windows:
-            历史相邻开奖重复数量的滚动窗口长度。每个窗口都会生成一列
-            repeat_count_mean_{window}。
 
     Returns:
         以 draw_index、issue、draw_date 为标识列的 Draw-level 特征表。
@@ -89,7 +85,7 @@ def build_repeat_history_features(
     shifted = repeat_series.shift(1)
     output = draws_df.loc[:, ["draw_index", "issue", "draw_date"]].copy()
 
-    for window in windows:
+    for window in FEATURE_REPEAT_WINDOWS:
         output[f"repeat_count_mean_{window}"] = (
             shifted.rolling(window=window, min_periods=window).mean().to_numpy()
         )

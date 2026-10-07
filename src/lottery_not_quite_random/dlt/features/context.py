@@ -13,8 +13,6 @@ import pandas as pd
 
 from ...config import (
     BONUS_CAMPAIGNS,
-    PRIZE_EVENT_TYPES,
-    RULE_VERSION_NAMES,
     RULE_VERSIONS,
     BonusCampaign,
     RuleVersion,
@@ -97,33 +95,6 @@ def get_bonus_campaign(issue: int) -> str | None:
         return None
 
     return campaign.name
-
-
-def validate_prize_context(prizes_df: pd.DataFrame) -> None:
-    """校验奖金级（Prize-level）业务上下文数据。
-
-    Args:
-        prizes_df:
-            processed/prizes.parquet 数据。
-
-    Raises:
-        ValueError:
-            当 rule_version 或 prize_event_type 非法时。
-    """
-
-    unknown_rules = sorted(
-        set(prizes_df["rule_version"].dropna().astype(str)) - set(RULE_VERSION_NAMES)
-    )
-
-    if unknown_rules:
-        raise ValueError(f"未知奖级规则版本 rule_version: {unknown_rules}")
-
-    unknown_events = sorted(
-        set(prizes_df["prize_event_type"].dropna().astype(str)) - set(PRIZE_EVENT_TYPES)
-    )
-
-    if unknown_events:
-        raise ValueError(f"未知奖金事件类型 prize_event_type: {unknown_events}")
 
 
 def get_draw_context(issue: int) -> DrawContext:

@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ...config import (
+    FEATURE_FREQUENCY_WINDOWS,
+    FEATURE_REPEAT_WINDOWS,
+    FEATURE_ROLLING_WINDOWS,
+)
+from .rolling import ROLLING_SOURCES
+
+# 开奖级（Draw-level）数据集的标识字段
 DRAW_ID_COLUMNS = ("draw_index", "issue", "draw_date")
 
+# 号码级（Number-level）数据集的标识字段
 NUMBER_ID_COLUMNS = (
     "draw_index",
     "issue",
@@ -14,37 +23,9 @@ NUMBER_ID_COLUMNS = (
     "number",
 )
 
+# 奖金级（Prize-level）数据集的标识字段
 PRIZE_ID_COLUMNS = (
     "draw_index",
-    "issue",
-    "draw_date",
-    "rule_version",
-    "prize_rank",
-    "prize_event_type",
-)
-
-DRAW_REQUIRED_INPUT_COLUMNS = (
-    "draw_index",
-    "issue",
-    "draw_date",
-    "red_sum",
-    "blue_sum",
-    "red_span",
-    "blue_span",
-    "red_odd_count",
-    "blue_odd_count",
-    "red_consecutive_group_count",
-    "red_max_consecutive_length",
-    "red_1",
-    "red_2",
-    "red_3",
-    "red_4",
-    "red_5",
-    "blue_1",
-    "blue_2",
-)
-
-PRIZE_REQUIRED_INPUT_COLUMNS = (
     "issue",
     "draw_date",
     "rule_version",
@@ -77,29 +58,71 @@ class FeatureSchema:
             raise ValueError(f"缺少 required columns: {missing}")
 
 
-def build_draw_schema(feature_columns: list[str]) -> FeatureSchema:
+def build_draw_schema() -> FeatureSchema:
     """创建 Draw-level Schema。"""
-    return FeatureSchema(
-        required_columns=(*DRAW_ID_COLUMNS, *feature_columns),
-        feature_columns=tuple(feature_columns),
+    rolling_feature_columns = tuple(
+        column
+        for source_column, _ in ROLLING_SOURCES
+        for window in FEATURE_ROLLING_WINDOWS
+        for column in (
+            f"{source_column}_mean_{window}",
+            f"{source_column}_std_{window}",
+        )
     )
 
+    repeat_feature_columns = tuple(
+        f"repeat_count_mean_{window}" for window in FEATURE_REPEAT_WINDOWS
+    )
 
-def build_number_schema(feature_columns: list[str]) -> FeatureSchema:
-    """创建 Number-level Schema。"""
+    feature_columns = (
+        *rolling_feature_columns,
+        *repeat_feature_columns,
+    )
+
     return FeatureSchema(
-        required_columns=(*NUMBER_ID_COLUMNS, *feature_columns),
-        feature_columns=tuple(feature_columns),
-        nullable_columns=(
-            "missing_current",
-            *[name for name in feature_columns if name.startswith("frequency_")],
+        required_columns=(
+            *DRAW_ID_COLUMNS,
+            *feature_columns,
         ),
+        feature_columns=feature_columns,
     )
 
 
-def build_prize_schema(feature_columns: list[str]) -> FeatureSchema:
-    """创建 Prize-level Schema。"""
+def build_number_schema() -> FeatureSchema:
+    """创建 Number-level Schema。"""
+    frequency_feature_columns = tuple(
+        f"frequency_{window}" for window in FEATURE_FREQUENCY_WINDOWS
+    )
+
+    repeat_feature_columns = ("prev_draw_hit",)
+
+    missing_feature_columns = ("missing_current",)
+
+    feature_columns = (
+        *frequency_feature_columns,
+        *repeat_feature_columns,
+        *missing_feature_columns,
+    )
+
     return FeatureSchema(
-        required_columns=(*PRIZE_ID_COLUMNS, *feature_columns),
-        feature_columns=tuple(feature_columns),
+        required_columns=(
+            *NUMBER_ID_COLUMNS,
+            *feature_columns,
+        ),
+        feature_columns=feature_columns,
+        nullable_columns=feature_columns,
+    )
+
+
+def build_prize_schema() -> FeatureSchema:
+    """创建 Prize-level Schema。"""
+
+    prize_context_columns = (
+        "is_bonus_period",
+        "bonus_campaign_id",
+    )
+
+    return FeatureSchema(
+        required_columns=(*PRIZE_ID_COLUMNS, *prize_context_columns),
+        feature_columns=prize_context_columns,
     )

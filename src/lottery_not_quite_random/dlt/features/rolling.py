@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import pandas as pd
 
+from ...config import FEATURE_ROLLING_WINDOWS
+
+# rolling 所取用的字段与号码区
 ROLLING_SOURCES: tuple[tuple[str, str], ...] = (
     ("red_sum", "red"),
     ("blue_sum", "blue"),
@@ -27,7 +30,6 @@ ROLLING_SOURCES: tuple[tuple[str, str], ...] = (
 
 def build_rolling_features(
     draws_df: pd.DataFrame,
-    windows: tuple[int, ...],
 ) -> pd.DataFrame:
     """生成 Draw-level 滚动均值与滚动标准差特征。
 
@@ -40,9 +42,6 @@ def build_rolling_features(
         draws_df:
             按 draw_index 升序排列的 processed draws，需包含 draw_index、
             issue、draw_date 以及 ROLLING_SOURCES 中列出的源字段。
-        windows:
-            滚动历史窗口长度。每个窗口都会为每个源字段生成对应的均值和
-            标准差特征。
 
     Returns:
         以 draw_index、issue、draw_date 为标识列的 Draw-level 滚动特征表。
@@ -60,7 +59,7 @@ def build_rolling_features(
         source = draws_df[source_column].astype("float64")
         shifted = source.shift(1)
 
-        for window in windows:
+        for window in FEATURE_ROLLING_WINDOWS:
             rolling = shifted.rolling(window=window, min_periods=window)
             output[f"{source_column}_mean_{window}"] = rolling.mean().to_numpy()
             output[f"{source_column}_std_{window}"] = rolling.std(ddof=1).to_numpy()

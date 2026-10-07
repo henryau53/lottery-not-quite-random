@@ -9,10 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ...config import (
-    BLUE_NUMBERS,
-    RED_NUMBERS,
-)
+from ...config import BLUE_NUMBERS, FEATURE_FREQUENCY_WINDOWS, RED_NUMBERS
 
 
 def _build_occurrence_matrix(
@@ -50,23 +47,20 @@ def _build_occurrence_matrix(
 
 def build_frequency_features(
     draws_df: pd.DataFrame,
-    windows: tuple[int, ...],
 ) -> pd.DataFrame:
     """生成号码级频率特征 frequency_*。
 
     对红球和蓝球分别构造各号码的逐期出现矩阵，先 shift(1) 排除当前期
     开奖结果，再按 FEATURE_FREQUENCY_WINDOWS 中的窗口计算滚动出现次数。
-    最终输出每期 × 每个号码的长表。
+    最终输出每期 x 每个号码的长表。
 
     Args:
         draws_df:
             按 draw_index 升序排列的 processed draws。需包含 draw_index、
             issue、draw_date 以及红球/蓝球号码列。
-        windows:
-            滚动历史窗口长度。
 
     Returns:
-        每行表示一个 draw × number 实体，包含以下列：
+        每行表示一个 draw x number 实体，包含以下列：
         - draw_index: 期次索引；
         - issue: 期号；
         - draw_date: 开奖日期；
@@ -86,7 +80,7 @@ def build_frequency_features(
         shifted = occurrence_df.shift(1)
         rolling_cache = {
             window: shifted.rolling(window=window, min_periods=window).sum()
-            for window in windows
+            for window in FEATURE_FREQUENCY_WINDOWS
         }
 
         for position, (_, draw_row) in enumerate(draws_df.iterrows()):
@@ -98,7 +92,7 @@ def build_frequency_features(
                     "number_zone": zone,
                     "number": number,
                 }
-                for window in windows:
+                for window in FEATURE_FREQUENCY_WINDOWS:
                     value = rolling_cache[window].iloc[position][number]
                     row[f"frequency_{window}"] = (
                         int(value) if pd.notna(value) else pd.NA

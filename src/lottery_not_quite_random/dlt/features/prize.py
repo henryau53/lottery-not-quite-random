@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .context import validate_prize_context
 from .schema import PRIZE_ID_COLUMNS
 
 
@@ -17,25 +16,19 @@ def build_prize_features(
     prizes_df: pd.DataFrame,
     draw_context_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """构建第一阶段 Prize-level 特征。
+    """构建 Prize-level 特征。
 
-    以 prizes_df 的奖级记录为粒度，校验奖级上下文后，将其与 draw_context_df
-    提供的 Draw-level 业务上下文关联。若 prizes_df 缺少 draw_index，则通过
+    以 prizes_df 的奖级记录为粒度，将其与 draw_context_df
+    提供的开奖级（Draw-level）业务上下文关联。若 prizes_df 缺少 draw_index，则通过
     issue 从 draw_context_df 映射补全。关联字段包括 draw_index、rule_version、
     is_bonus_period 和 bonus_campaign_id；合并过程中会处理同名列冲突，确保最终
     采用业务上下文中的 is_bonus_period、bonus_campaign_id 和 rule_version。
 
-    第一阶段不新增具体 Prize 派生统计，只稳定保留 prize record 粒度、关联字段、
-    原始奖金事实以及 Business Context。
-
     Args:
         prizes_df:
-            processed/prizes.parquet 对应的奖级记录数据，需满足奖级上下文校验
-            要求，并包含 issue、prize_rank、prize_event_type 等字段；如缺少
-            draw_index，会通过 issue 从 draw_context_df 映射补全。
+            processed/prizes.parquet 对应的奖级记录数据。
         draw_context_df:
-            Draw-level 业务上下文数据，包含 draw_index、issue、rule_version、
-            is_bonus_period、bonus_campaign_id 等字段。
+            开奖级（Draw-level）业务上下文数据。
 
     Returns:
         prize_features.parquet 对应的结果表。每行对应一条奖级记录，保留原始
@@ -44,7 +37,6 @@ def build_prize_features(
         其余列保持原有顺序；行按 draw_index、prize_rank、prize_event_type
         稳定排序。
     """
-    validate_prize_context(prizes_df)
 
     context_columns = [
         "draw_index",

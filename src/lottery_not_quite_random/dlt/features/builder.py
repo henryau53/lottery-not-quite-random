@@ -95,7 +95,7 @@ def build_features() -> dict[str, Path]:
     )
 
     # -------------------------------------------------------------------------
-    # 开奖级上下文构建
+    # 构建开奖级上下文
     # -------------------------------------------------------------------------
 
     context_df = build_draw_context(draws_df)
@@ -104,9 +104,9 @@ def build_features() -> dict[str, Path]:
     # 开奖级（Draw-level）特征值
     # -------------------------------------------------------------------------
 
-    rolling_df = build_rolling_features(draws_df, FEATURE_ROLLING_WINDOWS)
+    rolling_df = build_rolling_features(draws_df)
 
-    repeat_history_df = build_repeat_history_features(draws_df, FEATURE_REPEAT_WINDOWS)
+    repeat_history_df = build_repeat_history_features(draws_df)
 
     draw_features = context_df.merge(
         rolling_df,
@@ -129,7 +129,7 @@ def build_features() -> dict[str, Path]:
     # 号码级（Number-level）特征值
     # -------------------------------------------------------------------------
 
-    frequency_df = build_frequency_features(draws_df, FEATURE_FREQUENCY_WINDOWS)
+    frequency_df = build_frequency_features(draws_df)
 
     missing_df = build_missing_features(draws_df)
 
@@ -170,6 +170,9 @@ def build_features() -> dict[str, Path]:
 
     # -------------------------------------------------------------------------
     # 奖金级（Prize-level）特征值
+    #
+    # 第一阶段不新增具体 Prize 派生统计，只稳定保留 prize record 粒度、
+    # 关联字段、原始奖金事实以及业务上下文。
     # -------------------------------------------------------------------------
 
     prize_features = build_prize_features(
@@ -178,66 +181,18 @@ def build_features() -> dict[str, Path]:
     )
 
     # -------------------------------------------------------------------------
-    # Feature columns
-    # -------------------------------------------------------------------------
-
-    draw_feature_columns = [
-        column
-        for column in draw_features.columns
-        if column
-        not in {
-            "draw_index",
-            "issue",
-            "draw_date",
-        }
-    ]
-
-    number_feature_columns = [
-        column
-        for column in number_features.columns
-        if column
-        not in {
-            "draw_index",
-            "issue",
-            "draw_date",
-            "number_zone",
-            "number",
-        }
-    ]
-
-    prize_feature_columns = [
-        column
-        for column in prize_features.columns
-        if column
-        not in {
-            "draw_index",
-            "issue",
-            "draw_date",
-            "rule_version",
-            "prize_rank",
-            "prize_event_type",
-        }
-    ]
-
-    # -------------------------------------------------------------------------
     # Schema validation
     # -------------------------------------------------------------------------
 
-    build_draw_schema(draw_feature_columns).validate_columns(
-        draw_features.columns.tolist()
-    )
+    build_draw_schema().validate_columns(draw_features.columns.tolist())
 
-    build_number_schema(number_feature_columns).validate_columns(
-        number_features.columns.tolist()
-    )
+    build_number_schema().validate_columns(number_features.columns.tolist())
 
-    build_prize_schema(prize_feature_columns).validate_columns(
-        prize_features.columns.tolist()
-    )
+    build_prize_schema().validate_columns(prize_features.columns.tolist())
 
-    # # -------------------------------------------------------------------------
-    # # Feature output validation
-    # # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Feature output validation
+    # -------------------------------------------------------------------------
 
     # validate_feature_output(
     #     draw_features,
@@ -278,24 +233,24 @@ def build_features() -> dict[str, Path]:
     # Output paths
     # -------------------------------------------------------------------------
 
-    DLT_FEATURE_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    # DLT_FEATURE_DIR.mkdir(
+    #     parents=True,
+    #     exist_ok=True,
+    # )
 
     # -------------------------------------------------------------------------
     # Write Feature outputs
     # -------------------------------------------------------------------------
 
-    draw_features.to_parquet(
-        DLT_FEATURE_DRAW_FILE,
-        index=False,
-    )
+    # draw_features.to_parquet(
+    #     DLT_FEATURE_DRAW_FILE,
+    #     index=False,
+    # )
 
-    number_features.to_parquet(
-        DLT_FEATURE_NUMBER_FILE,
-        index=False,
-    )
+    # number_features.to_parquet(
+    #     DLT_FEATURE_NUMBER_FILE,
+    #     index=False,
+    # )
 
     # prize_features.to_parquet(
     #     DLT_FEATURE_PRIZE_FILE,
