@@ -181,7 +181,7 @@ def build_features() -> dict[str, Path]:
     )
 
     # -------------------------------------------------------------------------
-    # Schema validation
+    # 验证字段结构契约（Schema）
     # -------------------------------------------------------------------------
 
     build_draw_schema().validate_columns(draw_features.columns.tolist())
@@ -191,43 +191,43 @@ def build_features() -> dict[str, Path]:
     build_prize_schema().validate_columns(prize_features.columns.tolist())
 
     # -------------------------------------------------------------------------
-    # Feature output validation
+    # 验证实际输出数据质量
     # -------------------------------------------------------------------------
 
-    # validate_feature_output(
-    #     draw_features,
-    #     [
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #     ],
-    #     "draw_features",
-    # )
+    validate_feature_output(
+        draw_features,
+        [
+            "draw_index",
+            "issue",
+            "draw_date",
+        ],
+        "draw_features",
+    )
 
-    # validate_feature_output(
-    #     number_features,
-    #     [
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #         "number_zone",
-    #         "number",
-    #     ],
-    #     "number_features",
-    # )
+    validate_feature_output(
+        number_features,
+        [
+            "draw_index",
+            "issue",
+            "draw_date",
+            "number_zone",
+            "number",
+        ],
+        "number_features",
+    )
 
-    # validate_feature_output(
-    #     prize_features,
-    #     [
-    #         "draw_index",
-    #         "issue",
-    #         "draw_date",
-    #         "rule_version",
-    #         "prize_rank",
-    #         "prize_event_type",
-    #     ],
-    #     "prize_features",
-    # )
+    validate_feature_output(
+        prize_features,
+        [
+            "draw_index",
+            "issue",
+            "draw_date",
+            "rule_version",
+            "prize_rank",
+            "prize_event_type",
+        ],
+        "prize_features",
+    )
 
     # -------------------------------------------------------------------------
     # Output paths

@@ -1,4 +1,8 @@
-"""Feature 输出 Schema 与输入契约。"""
+"""Feature 输出 Schema 与输入契约。
+
+该模块定义各 Feature 数据集（Draw-level、Number-level、Prize-level）的
+标识列、字段契约以及相应的 Schema 构造函数，供特征输出校验使用。
+"""
 
 from __future__ import annotations
 
@@ -36,14 +40,26 @@ PRIZE_ID_COLUMNS = (
 
 @dataclass(frozen=True)
 class FeatureSchema:
-    """描述一个 Feature 数据集的字段契约。"""
+    """描述一个 Feature 数据集的字段契约。
+
+    包含必需字段、特征字段以及允许为空的字段。构造后不可变，供各数据集
+    的 Schema 构造函数返回使用。
+
+    Attributes:
+        required_columns:
+            数据集中必须存在的字段，通常由标识字段与特征字段组成。
+        feature_columns:
+            由特征工程生成的特征字段。
+        nullable_columns:
+            允许为空的字段，默认无。
+    """
 
     required_columns: tuple[str, ...]
     feature_columns: tuple[str, ...]
     nullable_columns: tuple[str, ...] = ()
 
     def validate_columns(self, columns: list[str]) -> None:
-        """验证必需字段存在。
+        """验证必需字段是否全部存在。
 
         Args:
             columns:
@@ -59,7 +75,11 @@ class FeatureSchema:
 
 
 def build_draw_schema() -> FeatureSchema:
-    """创建 Draw-level Schema。"""
+    """创建开奖级（Draw-level）Schema。
+
+    Returns:
+        返回开奖级数据集的字段契约。
+    """
     rolling_feature_columns = tuple(
         column
         for source_column, _ in ROLLING_SOURCES
@@ -89,7 +109,11 @@ def build_draw_schema() -> FeatureSchema:
 
 
 def build_number_schema() -> FeatureSchema:
-    """创建 Number-level Schema。"""
+    """创建号码级（Number-level）Schema。
+
+    Returns:
+        返回号码级数据集的字段契约。
+    """
     frequency_feature_columns = tuple(
         f"frequency_{window}" for window in FEATURE_FREQUENCY_WINDOWS
     )
@@ -115,7 +139,11 @@ def build_number_schema() -> FeatureSchema:
 
 
 def build_prize_schema() -> FeatureSchema:
-    """创建 Prize-level Schema。"""
+    """创建奖金级（Prize-level）Schema。
+
+    Returns:
+        返回奖金级数据集的字段契约。
+    """
 
     prize_context_columns = (
         "is_bonus_period",

@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 
 import pandas as pd
 
@@ -151,19 +150,16 @@ def validate_prize_input(prizes_df: pd.DataFrame) -> None:
 
 def validate_feature_output(
     df: pd.DataFrame,
-    required_columns: Iterable[str],
     name: str,
 ) -> None:
     """验证 Feature 输出字段与标识列空值。
 
-    先检查 required_columns 是否全部存在，再对 draw_index、issue、draw_date、
-    number_zone、number 等标识列检查是否存在空值。
+    对 draw_index、issue、draw_date、number_zone、
+    number 等标识列检查是否存在空值。
 
     Args:
         df:
             Feature DataFrame。
-        required_columns:
-            必须存在的字段。
         name:
             输出数据集名称，用于错误信息。
 
@@ -171,10 +167,6 @@ def validate_feature_output(
         ValueError:
             当字段缺失或标识字段存在空值时。
     """
-    missing = [column for column in required_columns if column not in df.columns]
-    if missing:
-        raise ValueError(f"{name} 缺少 required columns: {missing}")
-
     identifier_columns = [
         column
         for column in ("draw_index", "issue", "draw_date", "number_zone", "number")
