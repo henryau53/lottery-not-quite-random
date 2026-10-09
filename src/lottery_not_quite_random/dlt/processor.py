@@ -29,6 +29,9 @@ from ..config import (
     DLT_PROCESSED_DRAWS_FILE,
     DLT_PROCESSED_PRIZES_FILE,
     DLT_RAW_DRAWS_FILE,
+    PRIZE_EVENT_TYPES,
+    PRIZE_RANK_MAPPING,
+    RULE_VERSIONS,
 )
 from ..utils import load_json
 
@@ -118,41 +121,6 @@ DLT_PRIZE_SCHEMA = pa.schema(
         pa.field("total_prize_amount", pa.float64(), nullable=False),
     ]
 )
-
-
-# =============================================================================
-# PRIZE ENUMERATIONS
-# =============================================================================
-
-
-PRIZE_RANK_MAPPING = {
-    "一等奖": 1,
-    "二等奖": 2,
-    "三等奖": 3,
-    "四等奖": 4,
-    "五等奖": 5,
-    "六等奖": 6,
-    "七等奖": 7,
-    "八等奖": 8,
-    "九等奖": 9,
-}
-
-
-PRIZE_RULE_TIMELINE = [
-    (None, "14051", "v1"),
-    ("14052", "19018", "v2"),
-    ("19019", "26013", "v3"),
-    ("26014", None, "v4"),
-]
-
-
-VALID_PRIZE_EVENT_TYPES = {
-    "basic_prize",
-    "additional_prize",
-    "basic_bonus",
-    "additional_bonus",
-    "unknown",
-}
 
 
 # =============================================================================
@@ -355,12 +323,9 @@ def get_prize_rule_version(issue: str) -> str:
     """
     issue_number = int(issue)
 
-    for start, end, version in PRIZE_RULE_TIMELINE:
-        if start is not None and issue_number < int(start):
-            continue
-        if end is not None and issue_number > int(end):
-            continue
-        return version
+    for rule in RULE_VERSIONS:
+        if rule.matches(issue_number):
+            return rule.name
 
     raise ValueError(f"无法确定奖级规则版本: {issue}")
 
@@ -393,13 +358,15 @@ def parse_prize_event_type(prize_level: str) -> str:
     Returns:
         str: 奖金事件类型值
     """
+
+    # FIXME 在通过名称判断的同时，是否可以考虑添加同时使用 BONUS_CAMPAIGNS 是否派奖进行校验，同时并未使用 unknown 值，查看 unknown 是否需要
     if "追加派奖" in prize_level:
-        return "additional_bonus"
+        return PRIZE_EVENT_TYPES[3]
     if "派奖" in prize_level:
-        return "basic_bonus"
+        return PRIZE_EVENT_TYPES[2]
     if "追加" in prize_level:
-        return "additional_prize"
-    return "basic_prize"
+        return PRIZE_EVENT_TYPES[1]
+    return PRIZE_EVENT_TYPES[0]
 
 
 # =============================================================================

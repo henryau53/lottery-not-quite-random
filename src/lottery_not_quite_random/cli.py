@@ -3,6 +3,7 @@ import logging
 
 from .dlt import fetcher as dlt_fetcher
 from .dlt import processor as dlt_processor
+from .dlt.features import builder as dlt_feature_builder
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,17 @@ def _parse_args(
     dlt_parser.add_argument(
         "--process",
         action="store_true",
-        help=("对原始数据进行预处理，根据 raw/draws.json 生成 processed 数据"),
+        help="对原始数据进行预处理，根据 raw/draws.json 生成 processed 数据",
+    )
+
+    # -------------------------------------------------------------------------
+    # feature 数据生成
+    # -------------------------------------------------------------------------
+
+    dlt_parser.add_argument(
+        "--features",
+        action="store_true",
+        help="根据 processed 数据生成 Feature 数据",
     )
 
     return parser.parse_args(argv)
@@ -128,6 +139,13 @@ def _run_dlt(
         dlt_processor.build_processed()
 
         logger.info("数据预处理完成")
+
+        return
+
+    if args.features:
+        dlt_feature_builder.build_features()
+
+        logger.info("特征值 Feature 数据生成完成")
 
         return
 
