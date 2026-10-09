@@ -1,8 +1,11 @@
-"""Feature Metadata 生成。"""
+"""Feature Metadata 生成。
+
+该模块为第一阶段正式 Feature 集合生成元数据定义，并组装为完整的
+feature_metadata.json 文档。
+"""
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -15,15 +18,7 @@ from ...config import (
     FEATURE_REPEAT_WINDOWS,
     FEATURE_ROLLING_WINDOWS,
 )
-
-
-def file_sha256(path: Path) -> str:
-    """计算文件 SHA-256。"""
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+from ...utils import file_sha256
 
 
 def _base_metadata(
@@ -38,11 +33,53 @@ def _base_metadata(
     window: int | None,
     research_role: list[str],
     availability: str = "pre_draw",
+    observation_point: str = "before_current_draw",
     includes_current_draw: bool = False,
     shift: int = 1,
     leakage_rule: str = "仅能使用当前 draw_index 之前已经发生的数据。",
 ) -> dict[str, Any]:
-    """创建单个 Feature Metadata。"""
+    """创建单个 Feature Metadata。
+
+    提供各 Feature 元数据的公共字段与默认值，具体 Feature 只需给出差异
+    部分。默认按 pre_draw 可用、观察点在当前期开奖之前、shift=1 处理，
+    并按通用泄漏约束填写。
+
+    Args:
+        name:
+            Feature 的唯一名称。
+        category:
+            Feature 所属的功能类别。
+        level:
+            Feature 的分析层级/粒度。
+        entity:
+            Feature 所描述或分析的对象。
+        definition:
+            Feature 的自然语言定义/含义。
+        source:
+            Feature 所依赖的数据来源。
+        formula:
+            Feature 的计算公式或计算逻辑。
+        dtype:
+            Feature 的数据类型。
+        window:
+            Feature 计算所使用的历史数据窗口。
+        research_role:
+            Feature 在研究流程中的用途。
+        availability:
+            Feature 在开奖流程中的可用时间点，定义 Feature 在什么时候可获得，默认 "pre_draw"。包括 "pre_draw" 与 "post_draw"。
+        observation_point:
+            Feature 对应的时间观察点，默认 "before_current_draw"。
+        includes_current_draw:
+            是否包含当前开奖期的数据，默认 False。
+        shift:
+            计算 Feature 时使用的时间偏移量，默认 1。
+        leakage_rule:
+            Feature 避免未来信息泄漏的时间边界规则。
+
+    Returns:
+        单个 Feature 的元数据字典，含名称、类别、粒度、来源、公式、类型、
+        窗口、观察点、可用时间、泄漏约束、研究用途与定义版本。
+    """
     return {
         "name": name,
         "category": category,
@@ -53,7 +90,7 @@ def _base_metadata(
         "formula": formula,
         "dtype": dtype,
         "window": window,
-        "observation_point": "before_current_draw",
+        "observation_point": observation_point,
         "includes_current_draw": includes_current_draw,
         "shift": shift,
         "availability": availability,
@@ -64,7 +101,11 @@ def _base_metadata(
 
 
 def build_feature_definitions() -> dict[str, dict[str, Any]]:
-    """根据第一阶段正式 Feature 集合生成 Metadata 定义。"""
+    """生成第一阶段正式 Feature 集合的元数据定义。
+
+    Returns:
+        以 Feature 名称为键、以元数据字典为值的映射，覆盖第一阶段正式 Feature 集合。
+    """
     definitions: dict[str, dict[str, Any]] = {}
 
     for window in FEATURE_FREQUENCY_WINDOWS:
@@ -149,7 +190,7 @@ def build_feature_definitions() -> dict[str, dict[str, Any]]:
             "repeat",
             "draw",
             "draw",
-            f"当前期之前最近 {window} 次相邻开奖关系中重复号码数量的平均值。",
+            f"当前期之前最近 {window} 个有效相邻开奖全区号码重复数量的平均值。",
             ["processed.draws.red_1..red_5", "processed.draws.blue_1..blue_2"],
             f"mean(repeat_count[t-{window}:t-1])",
             "float64",
@@ -175,8 +216,8 @@ def build_feature_definitions() -> dict[str, dict[str, Any]]:
             "draw",
         ),
         "bonus_campaign_id": (
-            "当前开奖对应的确定性派奖活动编号。",
-            "configured bonus campaign range -> campaign_id",
+            "当前开奖对应的派奖活动名称或标识。",
+            "configured bonus campaign range -> campaign.name",
             "string",
             None,
             "context",
@@ -206,6 +247,12 @@ def build_feature_definitions() -> dict[str, dict[str, Any]]:
         )
 
     prize_fact_defs = {
+        "prize_name": (
+            "标准奖级名称。",
+            "processed.prizes.prize_name",
+            "copy(processed.prizes.prize_name)",
+            "string",
+        ),
         "prize_level_raw": (
             "官方原始奖级字段。",
             "processed.prizes.prize_level_raw",
@@ -230,6 +277,12 @@ def build_feature_definitions() -> dict[str, dict[str, Any]]:
             "copy(processed.prizes.total_prize_amount)",
             "float64",
         ),
+        "prize_event_type": (
+            "奖金事件类型，用于区分基本奖金、追加奖金、基本派奖、追加派奖。",
+            "processed.prizes.prize_event_type",
+            "copy(processed.prizes.prize_event_type)",
+            "string",
+        ),
     }
     for name, (definition, source, formula, dtype) in prize_fact_defs.items():
         definitions[name] = _base_metadata(
@@ -244,23 +297,10 @@ def build_feature_definitions() -> dict[str, dict[str, Any]]:
             None,
             ["descriptive", "historical_state"],
             availability="post_draw",
-            leakage_rule="该字段来自开奖后的 Prize record；用于预测时不得视为 pre_draw 信息。",
-        )
-
-    for name in ("prize_event_type",):
-        definitions[name] = _base_metadata(
-            name,
-            "context",
-            "prize",
-            "prize",
-            "奖金事件类型，用于区分普通奖金与特殊派奖事件。",
-            ["processed.prizes.prize_event_type"],
-            "copy(processed.prizes.prize_event_type)",
-            "string",
-            None,
-            ["descriptive", "historical_state"],
-            availability="post_draw",
-            leakage_rule="该字段描述开奖后的奖金事件；用于预测时不得视为 pre_draw 信息。",
+            leakage_rule=(
+                "该字段来自开奖后的奖金数据记录（Prize record）；"
+                "用于预测时不得视为 pre_draw 信息。"
+            ),
         )
 
     return definitions
@@ -271,7 +311,23 @@ def build_metadata_document(
     processed_paths: list[Path],
     feature_columns: dict[str, list[str]],
 ) -> dict[str, Any]:
-    """构建完整 feature_metadata.json 文档。"""
+    """构建完整的 feature_metadata.json 文档。
+
+    Args:
+        output_paths:
+            本次生成的 Feature 输出文件路径列表。
+        processed_paths:
+            作为输入的 processed 文件路径列表，用于计算哈希。
+        feature_columns:
+            实际生成的特征值列名集合。
+
+    Returns:
+        完整的 Metadata 定义。
+
+    Raises:
+        ValueError:
+            当存在实际 Feature 字段缺少 Metadata 定义时。
+    """
     definitions = build_feature_definitions()
     actual_names = {name for columns in feature_columns.values() for name in columns}
 
@@ -296,7 +352,17 @@ def build_metadata_document(
 
 
 def write_metadata(document: dict[str, Any], path: Path) -> None:
-    """以稳定 JSON 格式写出 Metadata。"""
+    """以稳定 JSON 格式写出 Metadata 文档。
+
+    使用 UTF-8、缩进 2 与键排序写出，便于版本管理与差异比较；目录不存在时
+    自动创建。
+
+    Args:
+        document:
+            由 build_metadata_document 生成的 Metadata 文档字典。
+        path:
+            目标 JSON 文件路径。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

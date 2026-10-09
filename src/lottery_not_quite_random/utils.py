@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import tempfile
@@ -103,3 +104,19 @@ def load_json(path: Path):
     """
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def file_sha256(path: Path) -> str:
+    """计算文件 SHA-256。
+
+    Args:
+        path: 文件路径
+
+    Returns:
+        sha256 值
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .schema import PRIZE_ID_COLUMNS
-
 
 def build_prize_features(
     prizes_df: pd.DataFrame,
@@ -74,7 +72,18 @@ def build_prize_features(
     if "rule_version_context" in output.columns:
         output = output.drop(columns=["rule_version_context"])
 
-    ordered = [column for column in PRIZE_ID_COLUMNS if column in output.columns]
+    ordered = [
+        column
+        for column in (
+            "draw_index",
+            "issue",
+            "draw_date",
+            "rule_version",
+            "prize_rank",
+            "prize_event_type",
+        )
+        if column in output.columns
+    ]
     remaining = [column for column in output.columns if column not in ordered]
     output = output.loc[:, [*ordered, *remaining]]
 

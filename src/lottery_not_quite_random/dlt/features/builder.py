@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+
 from ...config import (
     DLT_FEATURE_DIR,
     DLT_FEATURE_DRAW_FILE,
@@ -14,9 +15,6 @@ from ...config import (
     DLT_FEATURE_PRIZE_FILE,
     DLT_PROCESSED_DRAWS_FILE,
     DLT_PROCESSED_PRIZES_FILE,
-    FEATURE_FREQUENCY_WINDOWS,
-    FEATURE_REPEAT_WINDOWS,
-    FEATURE_ROLLING_WINDOWS,
 )
 from .context import build_draw_context
 from .frequency import build_frequency_features
@@ -59,29 +57,26 @@ def build_features() -> dict[str, Path]:
             当输入或输出不符合 Feature 契约时。
     """
 
-    draw_path = DLT_PROCESSED_DRAWS_FILE
-    prize_path = DLT_PROCESSED_PRIZES_FILE
+    if not DLT_PROCESSED_DRAWS_FILE.exists():
+        raise FileNotFoundError(f"缺少 processed draws: {DLT_PROCESSED_DRAWS_FILE}")
 
-    if not draw_path.exists():
-        raise FileNotFoundError(f"缺少 processed draws: {draw_path}")
-
-    if not prize_path.exists():
-        raise FileNotFoundError(f"缺少 processed prizes: {prize_path}")
+    if not DLT_PROCESSED_PRIZES_FILE.exists():
+        raise FileNotFoundError(f"缺少 processed prizes: {DLT_PROCESSED_PRIZES_FILE}")
 
     LOGGER.info(
         "读取 processed: draws=%s prizes=%s",
-        draw_path,
-        prize_path,
+        DLT_PROCESSED_DRAWS_FILE,
+        DLT_PROCESSED_PRIZES_FILE,
     )
 
     draws_df = (
-        pd.read_parquet(draw_path)
+        pd.read_parquet(DLT_PROCESSED_DRAWS_FILE)
         .copy()
         .sort_values("draw_index", kind="mergesort", ignore_index=True)
     )
     validate_draw_input(draws_df)
 
-    prizes_df = pd.read_parquet(prize_path).copy()
+    prizes_df = pd.read_parquet(DLT_PROCESSED_PRIZES_FILE).copy()
     validate_prize_input(prizes_df)
 
     LOGGER.info(
@@ -196,102 +191,107 @@ def build_features() -> dict[str, Path]:
 
     validate_feature_output(
         draw_features,
-        [
-            "draw_index",
-            "issue",
-            "draw_date",
-        ],
         "draw_features",
     )
 
     validate_feature_output(
         number_features,
-        [
-            "draw_index",
-            "issue",
-            "draw_date",
-            "number_zone",
-            "number",
-        ],
         "number_features",
     )
 
     validate_feature_output(
         prize_features,
-        [
-            "draw_index",
-            "issue",
-            "draw_date",
-            "rule_version",
-            "prize_rank",
-            "prize_event_type",
-        ],
         "prize_features",
     )
 
     # -------------------------------------------------------------------------
-    # Output paths
+    # 输出文件
     # -------------------------------------------------------------------------
 
-    # DLT_FEATURE_DIR.mkdir(
-    #     parents=True,
-    #     exist_ok=True,
-    # )
+    DLT_FEATURE_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    draw_features.to_parquet(
+        DLT_FEATURE_DRAW_FILE,
+        index=False,
+    )
+
+    number_features.to_parquet(
+        DLT_FEATURE_NUMBER_FILE,
+        index=False,
+    )
+
+    prize_features.to_parquet(
+        DLT_FEATURE_PRIZE_FILE,
+        index=False,
+    )
 
     # -------------------------------------------------------------------------
-    # Write Feature outputs
+    # 构建元数据 Metadata
     # -------------------------------------------------------------------------
 
-    # draw_features.to_parquet(
-    #     DLT_FEATURE_DRAW_FILE,
-    #     index=False,
-    # )
+    metadata = build_metadata_document(
+        output_paths=[
+            DLT_FEATURE_DRAW_FILE,
+            DLT_FEATURE_NUMBER_FILE,
+            DLT_FEATURE_PRIZE_FILE,
+        ],
+        processed_paths=[
+            DLT_PROCESSED_DRAWS_FILE,
+            DLT_PROCESSED_PRIZES_FILE,
+        ],
+        feature_columns={
+            "draw": [
+                column
+                for column in draw_features.columns
+                if column
+                not in {
+                    "draw_index",
+                    "issue",
+                    "draw_date",
+                }
+            ],
+            "number": [
+                column
+                for column in number_features.columns
+                if column
+                not in {
+                    "draw_index",
+                    "issue",
+                    "draw_date",
+                    "number_zone",
+                    "number",
+                }
+            ],
+            "prize": [
+                column
+                for column in prize_features.columns
+                if column
+                not in {
+                    "draw_index",
+                    "issue",
+                    "draw_date",
+                    "rule_version",
+                    "prize_rank",
+                    "prize_event_type",
+                }
+            ],
+        },
+    )
 
-    # number_features.to_parquet(
-    #     DLT_FEATURE_NUMBER_FILE,
-    #     index=False,
-    # )
+    write_metadata(
+        metadata,
+        DLT_FEATURE_METADATA_FILE,
+    )
 
-    # prize_features.to_parquet(
-    #     DLT_FEATURE_PRIZE_FILE,
-    #     index=False,
-    # )
-
-    # # -------------------------------------------------------------------------
-    # # Metadata
-    # # -------------------------------------------------------------------------
-
-    # metadata = build_metadata_document(
-    #     output_paths=[
-    #         DLT_FEATURE_DRAW_FILE,
-    #         DLT_FEATURE_NUMBER_FILE,
-    #         DLT_FEATURE_PRIZE_FILE,
-    #     ],
-    #     processed_paths=[
-    #         draw_path,
-    #         prize_path,
-    #     ],
-    #     feature_columns={
-    #         "draw": draw_feature_columns,
-    #         "number": number_feature_columns,
-    #         "prize": [
-    #             *prize_feature_columns,
-    #             "prize_event_type",
-    #         ],
-    #     },
-    # )
-
-    # write_metadata(
-    #     metadata,
-    #     DLT_FEATURE_METADATA_FILE,
-    # )
-
-    # LOGGER.info(
-    #     "Feature 构建完成: draw_rows=%d number_rows=%d prize_rows=%d",
-    #     len(draw_features),
-    #     len(number_features),
-    #     len(prize_features),
-    # )
+    LOGGER.info(
+        "Feature 构建完成: draw_rows=%d number_rows=%d prize_rows=%d",
+        len(draw_features),
+        len(number_features),
+        len(prize_features),
+    )
 
     return {
         "draw": DLT_FEATURE_DRAW_FILE,

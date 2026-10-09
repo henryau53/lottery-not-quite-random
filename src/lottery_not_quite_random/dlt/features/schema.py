@@ -15,28 +15,6 @@ from ...config import (
 )
 from .rolling import ROLLING_SOURCES
 
-# 开奖级（Draw-level）数据集的标识字段
-DRAW_ID_COLUMNS = ("draw_index", "issue", "draw_date")
-
-# 号码级（Number-level）数据集的标识字段
-NUMBER_ID_COLUMNS = (
-    "draw_index",
-    "issue",
-    "draw_date",
-    "number_zone",
-    "number",
-)
-
-# 奖金级（Prize-level）数据集的标识字段
-PRIZE_ID_COLUMNS = (
-    "draw_index",
-    "issue",
-    "draw_date",
-    "rule_version",
-    "prize_rank",
-    "prize_event_type",
-)
-
 
 @dataclass(frozen=True)
 class FeatureSchema:
@@ -101,7 +79,7 @@ def build_draw_schema() -> FeatureSchema:
 
     return FeatureSchema(
         required_columns=(
-            *DRAW_ID_COLUMNS,
+            *("draw_index", "issue", "draw_date"),
             *feature_columns,
         ),
         feature_columns=feature_columns,
@@ -130,7 +108,13 @@ def build_number_schema() -> FeatureSchema:
 
     return FeatureSchema(
         required_columns=(
-            *NUMBER_ID_COLUMNS,
+            *(
+                "draw_index",
+                "issue",
+                "draw_date",
+                "number_zone",
+                "number",
+            ),
             *feature_columns,
         ),
         feature_columns=feature_columns,
@@ -151,6 +135,16 @@ def build_prize_schema() -> FeatureSchema:
     )
 
     return FeatureSchema(
-        required_columns=(*PRIZE_ID_COLUMNS, *prize_context_columns),
+        required_columns=(
+            *(
+                "draw_index",
+                "issue",
+                "draw_date",
+                "rule_version",
+                "prize_rank",
+                "prize_event_type",
+            ),
+            *prize_context_columns,
+        ),
         feature_columns=prize_context_columns,
     )
