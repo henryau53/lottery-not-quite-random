@@ -5,13 +5,25 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ..validation import DRAW_STRUCTURE_COLUMNS
-
 
 def build_draw_distribution_summary(draws_df: pd.DataFrame) -> pd.DataFrame:
     """计算主要开奖结构变量的样本量、缺失数、分位数及范围。"""
     rows: list[dict[str, object]] = []
-    for column in DRAW_STRUCTURE_COLUMNS:
+    for column in (
+        "red_sum",
+        "red_span",
+        "blue_sum",
+        "blue_span",
+        "red_odd_count",
+        "red_even_count",
+        "blue_odd_count",
+        "blue_even_count",
+        "red_zone_1_count",
+        "red_zone_2_count",
+        "red_zone_3_count",
+        "red_consecutive_group_count",
+        "red_max_consecutive_length",
+    ):
         if column not in draws_df.columns:
             continue
         series = pd.to_numeric(draws_df[column], errors="coerce")
@@ -36,7 +48,21 @@ def build_draw_distribution_summary(draws_df: pd.DataFrame) -> pd.DataFrame:
 def build_draw_value_distribution(draws_df: pd.DataFrame) -> pd.DataFrame:
     """生成整数型开奖结构变量的经验频数表，保留变量定义和计数。"""
     rows: list[dict[str, object]] = []
-    for column in DRAW_STRUCTURE_COLUMNS:
+    for column in (
+        "red_sum",
+        "red_span",
+        "blue_sum",
+        "blue_span",
+        "red_odd_count",
+        "red_even_count",
+        "blue_odd_count",
+        "blue_even_count",
+        "red_zone_1_count",
+        "red_zone_2_count",
+        "red_zone_3_count",
+        "red_consecutive_group_count",
+        "red_max_consecutive_length",
+    ):
         if column not in draws_df.columns:
             continue
         series = pd.to_numeric(draws_df[column], errors="coerce")
@@ -49,9 +75,18 @@ def build_draw_value_distribution(draws_df: pd.DataFrame) -> pd.DataFrame:
                     "value": float(value),
                     "count": int(count),
                     "valid_sample_size": valid_count,
-                    "observed_proportion": float(count / valid_count) if valid_count else np.nan,
+                    "observed_proportion": float(count / valid_count)
+                    if valid_count
+                    else np.nan,
                 }
             )
-    return pd.DataFrame(rows, columns=[
-        "variable", "value", "count", "valid_sample_size", "observed_proportion"
-    ])
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "variable",
+            "value",
+            "count",
+            "valid_sample_size",
+            "observed_proportion",
+        ],
+    )
