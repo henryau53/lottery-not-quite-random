@@ -139,8 +139,6 @@ PRIZE_RANK_MAPPING = {
 # 奖级规则版本数据结构
 # ============================================================================
 
-# TODO 将 process 中定义版本 v1 等地方使用当前读取配置文件动态方式
-
 
 @dataclass(frozen=True)
 class RuleVersion:

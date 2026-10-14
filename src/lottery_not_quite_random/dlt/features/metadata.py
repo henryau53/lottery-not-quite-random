@@ -201,7 +201,7 @@ def build_feature_definitions() -> dict[str, dict[str, Any]]:
     context_defs = {
         "rule_version": (
             "当前开奖适用的彩票规则版本。",
-            "issue -> v1/v2/v3/v4",
+            "issue -> v1/v2/.../vN",
             "string",
             None,
             "context",
