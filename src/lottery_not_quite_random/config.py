@@ -139,8 +139,8 @@ PRIZE_RANK_MAPPING = {
 # 字段
 # ============================================================================
 
-RED_COLUMNS = [f"red_{index}" for index in range(1, 6)]
-BLUE_COLUMNS = [f"blue_{index}" for index in range(1, 3)]
+RED_COLUMNS = tuple(f"red_{index}" for index in range(1, 6))
+BLUE_COLUMNS = tuple(f"blue_{index}" for index in range(1, 3))
 
 
 # ============================================================================

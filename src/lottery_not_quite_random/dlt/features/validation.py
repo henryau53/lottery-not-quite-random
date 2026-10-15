@@ -13,7 +13,7 @@ import logging
 
 import pandas as pd
 
-from ...config import PRIZE_EVENT_TYPES, RULE_VERSION_NAMES
+from ...config import BLUE_COLUMNS, PRIZE_EVENT_TYPES, RED_COLUMNS, RULE_VERSION_NAMES
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ PRIZE_REQUIRED_INPUT_COLUMNS = (
 def validate_draw_input(draws_df: pd.DataFrame) -> None:
     """验证 processed draws 数据。
 
-    校验 required columns、draw_index 连续性、issue 唯一性、draw_date 非空，
+    校验必需字段、draw_index 连续性、issue 唯一性、draw_date 非空，
     以及红球/蓝球的取值范围与单期互不重复。
 
     Args:
@@ -69,7 +69,7 @@ def validate_draw_input(draws_df: pd.DataFrame) -> None:
         if column not in draws_df.columns
     ]
     if missing:
-        raise ValueError(f"draws 缺少 required columns: {missing}")
+        raise ValueError(f"draws 缺少必需字段: {missing}")
 
     expected_index = list(range(len(draws_df)))
     actual_index = draws_df["draw_index"].astype(int).tolist()
@@ -84,32 +84,29 @@ def validate_draw_input(draws_df: pd.DataFrame) -> None:
         raise ValueError("draw_date 不允许为空。")
 
     for column in [
-        *(f"red_{i}" for i in range(1, 6)),
-        *(f"blue_{i}" for i in range(1, 3)),
+        *RED_COLUMNS,
+        *BLUE_COLUMNS,
     ]:
         if draws_df[column].isna().any():
             raise ValueError(f"{column} 不允许为空。")
 
-    red_columns = [f"red_{i}" for i in range(1, 6)]
-    blue_columns = [f"blue_{i}" for i in range(1, 3)]
-
-    if not draws_df[red_columns].apply(lambda col: col.between(1, 35)).all().all():
+    if not draws_df[RED_COLUMNS].apply(lambda col: col.between(1, 35)).all().all():
         raise ValueError("red 号码存在非法值。")
 
-    if not draws_df[blue_columns].apply(lambda col: col.between(1, 12)).all().all():
+    if not draws_df[BLUE_COLUMNS].apply(lambda col: col.between(1, 12)).all().all():
         raise ValueError("blue 号码存在非法值。")
 
-    if draws_df[red_columns].apply(lambda row: row.nunique() != 5, axis=1).any():
+    if draws_df[RED_COLUMNS].apply(lambda row: row.nunique() != 5, axis=1).any():
         raise ValueError("单期开奖 red 号码必须互不重复。")
 
-    if draws_df[blue_columns].apply(lambda row: row.nunique() != 2, axis=1).any():
+    if draws_df[BLUE_COLUMNS].apply(lambda row: row.nunique() != 2, axis=1).any():
         raise ValueError("单期开奖 blue 号码必须互不重复。")
 
 
 def validate_prize_input(prizes_df: pd.DataFrame) -> None:
     """验证 processed prizes 数据。
 
-    校验 required columns 是否齐全，prizes.draw_index 是否存在空值，以及
+    校验必需字段是否齐全，prizes.draw_index 是否存在空值，以及
     rule_version 与 prize_event_type 是否在已知取值范围内。
 
     Args:
@@ -118,7 +115,7 @@ def validate_prize_input(prizes_df: pd.DataFrame) -> None:
 
     Raises:
         ValueError:
-            当 required columns 缺失、字段为空或字段值非法时。
+            当必需字段缺失、字段为空或字段值非法时。
     """
 
     missing = [
@@ -128,7 +125,7 @@ def validate_prize_input(prizes_df: pd.DataFrame) -> None:
     ]
 
     if missing:
-        raise ValueError(f"prizes 缺少 required columns: {missing}")
+        raise ValueError(f"prizes 缺少必需字段: {missing}")
 
     if "draw_index" in prizes_df.columns and prizes_df["draw_index"].isna().any():
         raise ValueError("prizes.draw_index 不允许为空。")

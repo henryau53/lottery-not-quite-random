@@ -49,7 +49,7 @@ class FeatureSchema:
         """
         missing = [column for column in self.required_columns if column not in columns]
         if missing:
-            raise ValueError(f"缺少 required columns: {missing}")
+            raise ValueError(f"缺少必需字段: {missing}")
 
 
 def build_draw_schema() -> FeatureSchema:

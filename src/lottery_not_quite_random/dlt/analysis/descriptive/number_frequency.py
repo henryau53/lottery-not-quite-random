@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ..validation import BLUE_COLUMNS, RED_COLUMNS
-
+from ....config import BLUE_COLUMNS, RED_COLUMNS
 
 ZONE_SPEC = {
     "red": {"columns": RED_COLUMNS, "number_max": 35, "draw_count": 5},
@@ -40,8 +39,14 @@ def build_number_frequency_table(draws_df: pd.DataFrame) -> pd.DataFrame:
                     "theoretical_probability": theoretical_probability,
                     "expected_count": n_draws * theoretical_probability,
                     "rate_difference": observed_rate - theoretical_probability,
-                    "rate_difference_percentage_points": 100 * (observed_rate - theoretical_probability),
-                    "relative_deviation": (observed_rate - theoretical_probability) / theoretical_probability,
+                    "rate_difference_percentage_points": 100
+                    * (observed_rate - theoretical_probability),
+                    "relative_deviation": (observed_rate - theoretical_probability)
+                    / theoretical_probability,
                 }
             )
-    return pd.DataFrame(rows).sort_values(["number_zone", "number"], kind="mergesort").reset_index(drop=True)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["number_zone", "number"], kind="mergesort")
+        .reset_index(drop=True)
+    )

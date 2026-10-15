@@ -1,3 +1,5 @@
+"""项目级工具模块"""
+
 import hashlib
 import json
 import os
@@ -7,16 +9,18 @@ from pathlib import Path
 
 
 def find_project_root(marker: str = "pyproject.toml") -> Path:
-    """从当前文件向上查找包含 marker 的目录，作为项目根
+    """从当前文件向上查找包含 marker 的目录，作为项目根。
 
     Args:
-        marker (str, optional): 用于识别项目根的文件名。.默认值 "pyproject.toml"
-
-    Raises:
-        FileNotFoundError: 向上找不到 marker 时抛出
+        marker:
+            用于识别项目根的文件名，默认 "pyproject.toml"。
 
     Returns:
-        Path: 项目根目录
+        项目根目录。
+
+    Raises:
+        FileNotFoundError:
+            向上找不到 marker 时抛出。
     """
 
     for parent in Path(__file__).resolve().parents:
@@ -29,8 +33,8 @@ def utc_now_iso() -> str:
     """返回当前 UTC 时间。
 
     Returns:
-        str: ISO 8601 格式的当前 UTC 时间，例如
-            ``2026-09-22T12:34:56+00:00``。
+        当前 UTC 时间的 ISO 8601 字符串，例如
+        2026-09-22T12:34:56+00:00。
     """
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -43,20 +47,22 @@ def atomic_write_json(
 ) -> None:
     """以原子方式将 JSON 数据写入文件。
 
-    写入时先在目标目录创建临时文件，完成写入并执行 ``fsync`` 后，
-    再通过 ``os.replace()`` 替换目标文件。
-
-    这样可以尽量避免程序在写入过程中异常退出，导致目标 JSON
-    文件只写入了一部分内容。
+    先写入同目录下的临时文件，fsync 后用 os.replace 替换目标文件，避免
+    写入中断时目标文件只写了一半。
 
     Args:
-        path: JSON 目标文件路径。
-        data: 要写入的、可被 JSON 序列化的数据。
-        indent: JSON 缩进空格数，默认为 2。
+        path:
+            JSON 目标文件路径。
+        data:
+            可被 JSON 序列化的数据。
+        indent:
+            JSON 缩进空格数，默认 2。
 
     Raises:
-        OSError: 临时文件创建、写入或替换失败时抛出。
-        TypeError: ``data`` 无法被 JSON 序列化时抛出。
+        OSError:
+            临时文件创建、写入或替换失败时抛出。
+        TypeError:
+            data 无法被 JSON 序列化时抛出。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -93,27 +99,33 @@ def load_json(path: Path):
     """读取 JSON 文件。
 
     Args:
-        path: JSON 文件路径。
+        path:
+            JSON 文件路径。
 
     Returns:
-        Any: 解析后的 JSON 数据。
+        解析后的 JSON 数据。
 
     Raises:
-        FileNotFoundError: 文件不存在时抛出。
-        json.JSONDecodeError: 文件内容不是合法 JSON 时抛出。
+        FileNotFoundError:
+            文件不存在时抛出。
+        json.JSONDecodeError:
+            文件内容不是合法 JSON 时抛出。
     """
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def file_sha256(path: Path) -> str:
-    """计算文件 SHA-256。
+    """计算文件的 SHA-256。
+
+    按块读取文件内容，避免一次性载入大文件。
 
     Args:
-        path: 文件路径
+        path:
+            文件路径。
 
     Returns:
-        sha256 值
+        文件的 SHA-256 十六进制摘要。
     """
     digest = hashlib.sha256()
     with path.open("rb") as file:

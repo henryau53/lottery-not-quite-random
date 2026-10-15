@@ -9,28 +9,43 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ...config import (
+    BLUE_COLUMNS,
+    RED_COLUMNS,
+    PRIZE_EVENT_TYPES,
+    RULE_VERSIONS,
+    BONUS_CAMPAIGNS,
+)
+
+from ..utils import normalize_issue_series
+
 LOGGER = logging.getLogger(__name__)
 
-DRAW_ID_COLUMNS = ("draw_index", "issue", "draw_date")
-RED_COLUMNS = tuple(f"red_{index}" for index in range(1, 6))
-BLUE_COLUMNS = tuple(f"blue_{index}" for index in range(1, 3))
-DRAW_STRUCTURE_COLUMNS = (
+# 开奖数据文件必须存在的字段
+DRAW_REQUIRED_INPUT_COLUMNS = (
+    "draw_index",
+    "issue",
+    "draw_date",
     "red_sum",
-    "red_span",
     "blue_sum",
+    "red_span",
     "blue_span",
     "red_odd_count",
-    "red_even_count",
     "blue_odd_count",
-    "blue_even_count",
-    "red_zone_1_count",
-    "red_zone_2_count",
-    "red_zone_3_count",
     "red_consecutive_group_count",
     "red_max_consecutive_length",
+    "red_1",
+    "red_2",
+    "red_3",
+    "red_4",
+    "red_5",
+    "blue_1",
+    "blue_2",
 )
-DRAW_REQUIRED_COLUMNS = (*DRAW_ID_COLUMNS, *RED_COLUMNS, *BLUE_COLUMNS, *DRAW_STRUCTURE_COLUMNS)
-PRIZE_REQUIRED_COLUMNS = (
+
+# FIXME 这里与 feature 阶段 validation 中的 PRIZE_REQUIRED_INPUT_COLUMNS 字段不相同
+# 奖金数据文件必须存在的字段
+PRIZE_REQUIRED_INPUT_COLUMNS = (
     "issue",
     "draw_date",
     "rule_version",
@@ -40,31 +55,15 @@ PRIZE_REQUIRED_COLUMNS = (
     "stake_count",
     "total_prize_amount",
 )
-PRIZE_EVENT_TYPES = {
-    "basic_prize",
-    "additional_prize",
-    "basic_bonus",
-    "additional_bonus",
-    "unknown",
-}
-RULE_VERSION_BOUNDS = ((14051, "v1"), (19018, "v2"), (26013, "v3"))
-BONUS_ISSUE_RANGES = ((21039, 21059), (22040, 22068), (23039, 23059), (24030, 24062), (25038, 25057), (26050, 26066))
 
 
-def _require_columns(df: pd.DataFrame, required: tuple[str, ...], table_name: str) -> None:
+def _require_columns(
+    df: pd.DataFrame, required: tuple[str, ...], table_name: str
+) -> None:
     """检查分析所需字段，缺失时提供明确的字段名。"""
     missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(f"{table_name} 缺少必需字段: {missing}")
-
-
-def _normalized_issue_series(series: pd.Series, table_name: str) -> pd.Series:
-    """把期号规范为用于关联的去空白字符串。"""
-    issue = series.astype("string").str.strip()
-    issue = issue.str.replace(r"\.0$", "", regex=True)
-    if issue.isna().any() or issue.eq("").any():
-        raise ValueError(f"{table_name}.issue 存在空值或空字符串。")
-    return issue
 
 
 def issue_number(issue: Any) -> int:
@@ -106,22 +105,33 @@ def validate_draws(draws_df: pd.DataFrame) -> pd.DataFrame:
         raise TypeError("draws_df 必须是 pandas.DataFrame。")
     if draws_df.empty:
         raise ValueError("processed draws 为空，无法开展 Analysis。")
-    _require_columns(draws_df, DRAW_REQUIRED_COLUMNS, "processed draws")
+    _require_columns(draws_df, DRAW_REQUIRED_INPUT_COLUMNS, "processed draws")
 
     result = draws_df.copy()
-    result["issue"] = _normalized_issue_series(result["issue"], "draws")
+    result["issue"] = normalize_issue_series(result["issue"], "draws_processed")
     if result["draw_index"].isna().any():
         raise ValueError("draws.draw_index 存在空值。")
     numeric_index = pd.to_numeric(result["draw_index"], errors="coerce")
-    if numeric_index.isna().any() or not np.equal(numeric_index, np.floor(numeric_index)).all():
+    if (
+        numeric_index.isna().any()
+        or not np.equal(numeric_index, np.floor(numeric_index)).all()
+    ):
         raise ValueError("draws.draw_index 必须全部为整数。")
     result["draw_index"] = numeric_index.astype("int64")
 
     if result["draw_index"].duplicated().any():
-        duplicate_values = result.loc[result["draw_index"].duplicated(keep=False), "draw_index"].tolist()
-        raise ValueError(f"draws.draw_index 必须唯一；重复值示例: {duplicate_values[:5]}")
+        duplicate_values = result.loc[
+            result["draw_index"].duplicated(keep=False), "draw_index"
+        ].tolist()
+        raise ValueError(
+            f"draws.draw_index 必须唯一；重复值示例: {duplicate_values[:5]}"
+        )
     if result["issue"].duplicated().any():
-        duplicate_values = result.loc[result["issue"].duplicated(keep=False), "issue"].astype(str).tolist()
+        duplicate_values = (
+            result.loc[result["issue"].duplicated(keep=False), "issue"]
+            .astype(str)
+            .tolist()
+        )
         raise ValueError(f"draws.issue 必须唯一；重复值示例: {duplicate_values[:5]}")
 
     expected_indices = np.arange(len(result), dtype=np.int64)
@@ -134,16 +144,24 @@ def validate_draws(draws_df: pd.DataFrame) -> pd.DataFrame:
 
     dates = pd.to_datetime(result["draw_date"], errors="coerce")
     if dates.isna().any():
-        bad_rows = result.loc[dates.isna(), ["draw_index", "issue", "draw_date"]].head(5)
-        raise ValueError(f"draws.draw_date 存在空值或无效日期，示例: {bad_rows.to_dict('records')}")
+        bad_rows = result.loc[dates.isna(), ["draw_index", "issue", "draw_date"]].head(
+            5
+        )
+        raise ValueError(
+            f"draws.draw_date 存在空值或无效日期，示例: {bad_rows.to_dict('records')}"
+        )
     result["__analysis_date"] = dates
     result = result.sort_values("draw_index", kind="mergesort").reset_index(drop=True)
     if not result["__analysis_date"].is_monotonic_increasing:
-        bad_position = np.flatnonzero(result["__analysis_date"].diff().dt.total_seconds().fillna(0).lt(0))
-        examples = result.loc[bad_position[:5], ["draw_index", "issue", "draw_date"]].to_dict("records")
+        bad_position = np.flatnonzero(
+            result["__analysis_date"].diff().dt.total_seconds().fillna(0).lt(0)
+        )
+        examples = result.loc[
+            bad_position[:5], ["draw_index", "issue", "draw_date"]
+        ].to_dict("records")
         raise ValueError(f"draw_index 与 draw_date 时间方向不一致，示例: {examples}")
     result = result.drop(columns="__analysis_date")
-    result["issue"] = _normalized_issue_series(result["issue"], "draws")
+    result["issue"] = normalize_issue_series(result["issue"], "draws_processed")
 
     for column in (*RED_COLUMNS, *BLUE_COLUMNS):
         numeric = pd.to_numeric(result[column], errors="coerce")
@@ -162,7 +180,25 @@ def validate_draws(draws_df: pd.DataFrame) -> pd.DataFrame:
     if any(len(set(row.tolist())) != 2 for row in blue_values):
         raise ValueError("每期后区必须包含 2 个互不重复号码。")
 
-    numeric_fields = [column for column in DRAW_STRUCTURE_COLUMNS if column in result.columns]
+    numeric_fields = [
+        column
+        for column in (
+            "red_sum",
+            "red_span",
+            "blue_sum",
+            "blue_span",
+            "red_odd_count",
+            "red_even_count",
+            "blue_odd_count",
+            "blue_even_count",
+            "red_zone_1_count",
+            "red_zone_2_count",
+            "red_zone_3_count",
+            "red_consecutive_group_count",
+            "red_max_consecutive_length",
+        )
+        if column in result.columns
+    ]
     for column in numeric_fields:
         numeric = pd.to_numeric(result[column], errors="coerce")
         if numeric.isna().any():
@@ -177,20 +213,24 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
     """验证奖级记录、规则版本和事件类型。"""
     if not isinstance(prizes_df, pd.DataFrame):
         raise TypeError("prizes_df 必须是 pandas.DataFrame。")
-    _require_columns(prizes_df, PRIZE_REQUIRED_COLUMNS, "processed prizes")
+    _require_columns(prizes_df, PRIZE_REQUIRED_INPUT_COLUMNS, "processed prizes")
     result = prizes_df.copy()
     if result.empty:
         LOGGER.warning("processed prizes 为空；本次运行只会输出空奖金摘要。")
         result["issue"] = result["issue"].astype("string")
         return result
 
-    result["issue"] = _normalized_issue_series(result["issue"], "prizes")
+    result["issue"] = normalize_issue_series(result["issue"], "prizes_processed")
     draw_issues = set(draws_df["issue"].astype(str))
     unknown_issues = sorted(set(result["issue"].astype(str)) - draw_issues)
     if unknown_issues:
-        raise ValueError(f"prizes 中存在 processed draws 未包含的期号: {unknown_issues[:10]}")
+        raise ValueError(
+            f"prizes 中存在 processed draws 未包含的期号: {unknown_issues[:10]}"
+        )
 
-    invalid_events = sorted(set(result["prize_event_type"].dropna().astype(str)) - PRIZE_EVENT_TYPES)
+    invalid_events = sorted(
+        set(result["prize_event_type"].dropna().astype(str)) - PRIZE_EVENT_TYPES
+    )
     if invalid_events or result["prize_event_type"].isna().any():
         raise ValueError(
             "prizes.prize_event_type 必须属于 "
@@ -198,45 +238,90 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
         )
 
     # 奖金记录的 draw_date 必须与开奖事实对应，避免按 issue 关联时混入错误日期。
-    date_map = draws_df.assign(__analysis_date=pd.to_datetime(draws_df["draw_date"])).set_index("issue")["__analysis_date"]
+    date_map = draws_df.assign(
+        __analysis_date=pd.to_datetime(draws_df["draw_date"])
+    ).set_index("issue")["__analysis_date"]
     prize_dates = pd.to_datetime(result["draw_date"], errors="coerce")
     expected_dates = result["issue"].map(date_map)
-    if prize_dates.isna().any() or expected_dates.isna().any() or not prize_dates.dt.normalize().equals(expected_dates.dt.normalize()):
-        raise ValueError("prizes.draw_date 与 processed draws 中相同期号的开奖日期不一致。")
+    if (
+        prize_dates.isna().any()
+        or expected_dates.isna().any()
+        or not prize_dates.dt.normalize().equals(expected_dates.dt.normalize())
+    ):
+        raise ValueError(
+            "prizes.draw_date 与 processed draws 中相同期号的开奖日期不一致。"
+        )
 
     if result["rule_version"].isna().any():
         raise ValueError("prizes.rule_version 存在空值。")
-    invalid_versions = sorted(set(result["rule_version"].astype(str)) - {"v1", "v2", "v3", "v4"})
+    invalid_versions = sorted(
+        set(result["rule_version"].astype(str)) - {"v1", "v2", "v3", "v4"}
+    )
     if invalid_versions:
         raise ValueError(f"prizes.rule_version 存在未知值: {invalid_versions}")
 
     prize_rank = pd.to_numeric(result["prize_rank"], errors="coerce")
-    if prize_rank.isna().any() or not np.equal(prize_rank, np.floor(prize_rank)).all() or prize_rank.lt(1).any():
+    if (
+        prize_rank.isna().any()
+        or not np.equal(prize_rank, np.floor(prize_rank)).all()
+        or prize_rank.lt(1).any()
+    ):
         raise ValueError("prizes.prize_rank 必须是正整数。")
     result["prize_rank"] = prize_rank.astype("int64")
     max_rank_by_rule = {"v1": 8, "v2": 6, "v3": 9, "v4": 7}
     max_rank = result["rule_version"].astype(str).map(max_rank_by_rule)
     invalid_rank_mask = result["prize_rank"] > max_rank
     if invalid_rank_mask.any():
-        examples = result.loc[invalid_rank_mask, ["issue", "rule_version", "prize_rank"]].head(5).to_dict("records")
-        raise ValueError(f"prizes.prize_rank 超出对应 rule_version 的奖级范围，示例: {examples}")
+        examples = (
+            result.loc[invalid_rank_mask, ["issue", "rule_version", "prize_rank"]]
+            .head(5)
+            .to_dict("records")
+        )
+        raise ValueError(
+            f"prizes.prize_rank 超出对应 rule_version 的奖级范围，示例: {examples}"
+        )
 
-    additional_mask = result["prize_event_type"].astype(str).isin({"additional_prize", "additional_bonus"})
+    additional_mask = (
+        result["prize_event_type"]
+        .astype(str)
+        .isin({"additional_prize", "additional_bonus"})
+    )
     max_additional_rank_by_rule = {"v1": 7, "v2": 5, "v3": 2, "v4": 2}
-    max_additional_rank = result["rule_version"].astype(str).map(max_additional_rank_by_rule)
-    invalid_additional_mask = additional_mask & result["prize_rank"].gt(max_additional_rank)
+    max_additional_rank = (
+        result["rule_version"].astype(str).map(max_additional_rank_by_rule)
+    )
+    invalid_additional_mask = additional_mask & result["prize_rank"].gt(
+        max_additional_rank
+    )
     if invalid_additional_mask.any():
-        examples = result.loc[invalid_additional_mask, ["issue", "rule_version", "prize_rank", "prize_event_type"]].head(5).to_dict("records")
-        raise ValueError(f"追加投注记录的 prize_rank 超出对应 rule_version 的追加范围，示例: {examples}")
+        examples = (
+            result.loc[
+                invalid_additional_mask,
+                ["issue", "rule_version", "prize_rank", "prize_event_type"],
+            ]
+            .head(5)
+            .to_dict("records")
+        )
+        raise ValueError(
+            f"追加投注记录的 prize_rank 超出对应 rule_version 的追加范围，示例: {examples}"
+        )
 
     issue_numbers = pd.to_numeric(result["issue"], errors="coerce")
-    if issue_numbers.isna().any() or not np.equal(issue_numbers, np.floor(issue_numbers)).all():
+    if (
+        issue_numbers.isna().any()
+        or not np.equal(issue_numbers, np.floor(issue_numbers)).all()
+    ):
         raise ValueError("prizes.issue 必须是可识别的整数期号。")
+
     expected_versions = pd.Series(
+        # TODO 此处更改逻辑，对 expected_versions 的结果输出查看验证是否存在问题
         np.select(
-            [issue_numbers <= boundary for boundary, _ in RULE_VERSION_BOUNDS],
-            [version for _, version in RULE_VERSION_BOUNDS],
-            default="v4",
+            [
+                issue_numbers.between(rule.start_issue, rule.end_issue)
+                for rule in RULE_VERSIONS
+            ],
+            [rule.name for rule in RULE_VERSIONS],
+            default=None,
         ),
         index=result.index,
     )
@@ -249,12 +334,19 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
             f"{mismatch.to_dict('records')}"
         )
 
-    bonus_mask = result["prize_event_type"].astype(str).isin({"basic_bonus", "additional_bonus"})
+    bonus_mask = (
+        result["prize_event_type"].astype(str).isin({"basic_bonus", "additional_bonus"})
+    )
     if bonus_mask.any():
         known_bonus_mask = pd.Series(False, index=result.index)
-        for start_issue, end_issue in BONUS_ISSUE_RANGES:
-            known_bonus_mask |= issue_numbers.between(start_issue, end_issue)
-        outside_ranges = result.loc[bonus_mask & ~known_bonus_mask, "issue"].astype(str).tolist()
+        # TODO 此处更改逻辑，对 known_bonus_mask 的结果输出查看是否存在问题
+        for campaign in BONUS_CAMPAIGNS:
+            known_bonus_mask |= issue_numbers.between(
+                campaign.start_issue, campaign.end_issue
+            )
+        outside_ranges = (
+            result.loc[bonus_mask & ~known_bonus_mask, "issue"].astype(str).tolist()
+        )
         if outside_ranges:
             raise ValueError(
                 "prizes 中派奖事件出现在 PROJECT_CONTEXT 已定义的派奖期号范围之外；"
@@ -263,7 +355,11 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
 
     key_columns = ["issue", "rule_version", "prize_rank", "prize_event_type"]
     if result.duplicated(key_columns).any():
-        examples = result.loc[result.duplicated(key_columns, keep=False), key_columns].head(5).to_dict("records")
+        examples = (
+            result.loc[result.duplicated(key_columns, keep=False), key_columns]
+            .head(5)
+            .to_dict("records")
+        )
         raise ValueError(f"prizes 存在重复的奖级事件键 {key_columns}，示例: {examples}")
 
     for column in ("stake_amount", "stake_count", "total_prize_amount"):
@@ -276,34 +372,59 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
     return result
 
 
-def validate_draw_features(feature_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataFrame:
+def validate_draw_features(
+    feature_df: pd.DataFrame, draws_df: pd.DataFrame
+) -> pd.DataFrame:
     """验证 Draw-level Feature 键和覆盖范围。"""
-    _require_columns(feature_df, DRAW_ID_COLUMNS, "draw_features")
+    _require_columns(feature_df, ("draw_index", "issue", "draw_date"), "draw_features")
     result = feature_df.copy()
-    result["issue"] = _normalized_issue_series(result["issue"], "draw_features")
+    result["issue"] = normalize_issue_series(result["issue"], "draw_features")
     if result["draw_index"].duplicated().any() or result["issue"].duplicated().any():
-        raise ValueError("draw_features 应为一行一个开奖期；draw_index 和 issue 必须唯一。")
+        raise ValueError(
+            "draw_features 应为一行一个开奖期；draw_index 和 issue 必须唯一。"
+        )
     expected = draws_df.loc[:, ["draw_index", "issue", "draw_date"]].copy()
     expected["issue"] = expected["issue"].astype(str)
-    expected["__date_key"] = pd.to_datetime(expected["draw_date"], errors="coerce").dt.normalize().astype(str)
+    expected["__date_key"] = (
+        pd.to_datetime(expected["draw_date"], errors="coerce")
+        .dt.normalize()
+        .astype(str)
+    )
     actual = result.loc[:, ["draw_index", "issue", "draw_date"]].copy()
     actual["draw_index"] = pd.to_numeric(actual["draw_index"], errors="coerce")
     actual["issue"] = actual["issue"].astype(str)
-    actual["__date_key"] = pd.to_datetime(actual["draw_date"], errors="coerce").dt.normalize().astype(str)
+    actual["__date_key"] = (
+        pd.to_datetime(actual["draw_date"], errors="coerce").dt.normalize().astype(str)
+    )
     key_columns = ["draw_index", "issue", "__date_key"]
-    if actual["__date_key"].eq("NaT").any() or len(actual) != len(expected) or not expected.merge(actual, on=key_columns, how="outer", indicator=True)["_merge"].eq("both").all():
-        raise ValueError("draw_features 与 processed draws 的开奖键、日期或覆盖范围不一致。")
+    if (
+        actual["__date_key"].eq("NaT").any()
+        or len(actual) != len(expected)
+        or not expected.merge(actual, on=key_columns, how="outer", indicator=True)[
+            "_merge"
+        ]
+        .eq("both")
+        .all()
+    ):
+        raise ValueError(
+            "draw_features 与 processed draws 的开奖键、日期或覆盖范围不一致。"
+        )
     return result.sort_values("draw_index", kind="mergesort").reset_index(drop=True)
 
 
-def validate_number_features(feature_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataFrame:
+def validate_number_features(
+    feature_df: pd.DataFrame, draws_df: pd.DataFrame
+) -> pd.DataFrame:
     """验证 Number-level Feature 长表键、号码范围与完整实体覆盖。"""
     required = ("draw_index", "issue", "draw_date", "number_zone", "number")
     _require_columns(feature_df, required, "number_features")
     result = feature_df.copy()
-    result["issue"] = _normalized_issue_series(result["issue"], "number_features")
+    result["issue"] = normalize_issue_series(result["issue"], "number_features")
     result["number"] = pd.to_numeric(result["number"], errors="coerce")
-    if result["number"].isna().any() or not np.equal(result["number"], np.floor(result["number"])).all():
+    if (
+        result["number"].isna().any()
+        or not np.equal(result["number"], np.floor(result["number"])).all()
+    ):
         raise ValueError("number_features.number 必须全部为整数。")
     result["number"] = result["number"].astype("int64")
     if not set(result["number_zone"].dropna().astype(str)).issubset({"red", "blue"}):
@@ -318,7 +439,11 @@ def validate_number_features(feature_df: pd.DataFrame, draws_df: pd.DataFrame) -
 
     key = ["draw_index", "number_zone", "number"]
     if result.duplicated(key).any():
-        examples = result.loc[result.duplicated(key, keep=False), key].head(5).to_dict("records")
+        examples = (
+            result.loc[result.duplicated(key, keep=False), key]
+            .head(5)
+            .to_dict("records")
+        )
         raise ValueError(f"number_features 存在重复实体键，示例: {examples}")
     expected_rows = len(draws_df) * (35 + 12)
     if len(result) != expected_rows:
@@ -326,30 +451,72 @@ def validate_number_features(feature_df: pd.DataFrame, draws_df: pd.DataFrame) -
             "number_features 必须覆盖每期开奖的全部 35 个前区实体和 12 个后区实体；"
             f"预期 {expected_rows} 行，实际 {len(result)} 行。"
         )
-    counts = result.groupby(["draw_index", "number_zone"], observed=True)["number"].nunique()
+    counts = result.groupby(["draw_index", "number_zone"], observed=True)[
+        "number"
+    ].nunique()
     expected_counts = {"red": 35, "blue": 12}
     for zone, expected_count in expected_counts.items():
-        zone_counts = counts.xs(zone, level="number_zone") if zone in counts.index.get_level_values("number_zone") else pd.Series(dtype=int)
-        if len(zone_counts) != len(draws_df) or not zone_counts.eq(expected_count).all():
-            raise ValueError(f"number_features 每期 {zone} 必须恰好包含 {expected_count} 个号码实体。")
+        zone_counts = (
+            counts.xs(zone, level="number_zone")
+            if zone in counts.index.get_level_values("number_zone")
+            else pd.Series(dtype=int)
+        )
+        if (
+            len(zone_counts) != len(draws_df)
+            or not zone_counts.eq(expected_count).all()
+        ):
+            raise ValueError(
+                f"number_features 每期 {zone} 必须恰好包含 {expected_count} 个号码实体。"
+            )
     expected_keys = draws_df.loc[:, ["draw_index", "issue", "draw_date"]].copy()
     expected_keys["issue"] = expected_keys["issue"].astype(str)
-    expected_keys["__date_key"] = pd.to_datetime(expected_keys["draw_date"], errors="coerce").dt.normalize().astype(str)
-    actual_keys = result.loc[:, ["draw_index", "issue", "draw_date"]].drop_duplicates().copy()
+    expected_keys["__date_key"] = (
+        pd.to_datetime(expected_keys["draw_date"], errors="coerce")
+        .dt.normalize()
+        .astype(str)
+    )
+    actual_keys = (
+        result.loc[:, ["draw_index", "issue", "draw_date"]].drop_duplicates().copy()
+    )
     actual_keys["issue"] = actual_keys["issue"].astype(str)
-    actual_keys["__date_key"] = pd.to_datetime(actual_keys["draw_date"], errors="coerce").dt.normalize().astype(str)
+    actual_keys["__date_key"] = (
+        pd.to_datetime(actual_keys["draw_date"], errors="coerce")
+        .dt.normalize()
+        .astype(str)
+    )
     key_columns = ["draw_index", "issue", "__date_key"]
-    if actual_keys["__date_key"].eq("NaT").any() or len(expected_keys) != len(actual_keys) or not expected_keys.merge(actual_keys, on=key_columns, how="outer", indicator=True)["_merge"].eq("both").all():
-        raise ValueError("number_features 的开奖键、日期或覆盖范围与 processed draws 不一致。")
-    return result.sort_values(["draw_index", "number_zone", "number"], kind="mergesort").reset_index(drop=True)
+    if (
+        actual_keys["__date_key"].eq("NaT").any()
+        or len(expected_keys) != len(actual_keys)
+        or not expected_keys.merge(
+            actual_keys, on=key_columns, how="outer", indicator=True
+        )["_merge"]
+        .eq("both")
+        .all()
+    ):
+        raise ValueError(
+            "number_features 的开奖键、日期或覆盖范围与 processed draws 不一致。"
+        )
+    return result.sort_values(
+        ["draw_index", "number_zone", "number"], kind="mergesort"
+    ).reset_index(drop=True)
 
 
-def validate_prize_features(feature_df: pd.DataFrame, prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataFrame:
+def validate_prize_features(
+    feature_df: pd.DataFrame, prizes_df: pd.DataFrame, draws_df: pd.DataFrame
+) -> pd.DataFrame:
     """验证 Prize-level Feature 一行一条 prize record 的粒度。"""
-    required = ("draw_index", "issue", "draw_date", "rule_version", "prize_rank", "prize_event_type")
+    required = (
+        "draw_index",
+        "issue",
+        "draw_date",
+        "rule_version",
+        "prize_rank",
+        "prize_event_type",
+    )
     _require_columns(feature_df, required, "prize_features")
     result = feature_df.copy()
-    result["issue"] = _normalized_issue_series(result["issue"], "prize_features")
+    result["issue"] = normalize_issue_series(result["issue"], "prize_features")
     if len(result) != len(prizes_df):
         raise ValueError(
             "prize_features 必须保持 prize record 粒度；"
@@ -365,24 +532,41 @@ def validate_prize_features(feature_df: pd.DataFrame, prizes_df: pd.DataFrame, d
         frame["rule_version"] = frame["rule_version"].astype(str)
         frame["prize_event_type"] = frame["prize_event_type"].astype(str)
         frame["prize_rank"] = pd.to_numeric(frame["prize_rank"], errors="coerce")
-    if normalized_prize_keys["prize_rank"].isna().any() or normalized_feature_keys["prize_rank"].isna().any():
+    if (
+        normalized_prize_keys["prize_rank"].isna().any()
+        or normalized_feature_keys["prize_rank"].isna().any()
+    ):
         raise ValueError("processed prizes 或 prize_features.prize_rank 包含无效值。")
     comparison = normalized_prize_keys.merge(
         normalized_feature_keys, on=keys, how="outer", indicator=True
     )
     if not comparison["_merge"].eq("both").all():
-        raise ValueError("prize_features 的 issue/rule_version/prize_rank/prize_event_type 与 processed prizes 不一致。")
+        raise ValueError(
+            "prize_features 的 issue/rule_version/prize_rank/prize_event_type 与 processed prizes 不一致。"
+        )
     draw_index_by_issue = draws_df.set_index("issue")["draw_index"].to_dict()
     expected_indices = result["issue"].map(draw_index_by_issue)
     actual_indices = pd.to_numeric(result["draw_index"], errors="coerce")
-    if expected_indices.isna().any() or actual_indices.isna().any() or not actual_indices.astype(int).equals(expected_indices.astype(int)):
+    if (
+        expected_indices.isna().any()
+        or actual_indices.isna().any()
+        or not actual_indices.astype(int).equals(expected_indices.astype(int))
+    ):
         raise ValueError("prize_features.draw_index 与期号映射不一致。")
-    date_by_issue = pd.to_datetime(draws_df.set_index("issue")["draw_date"], errors="coerce")
+    date_by_issue = pd.to_datetime(
+        draws_df.set_index("issue")["draw_date"], errors="coerce"
+    )
     expected_dates = result["issue"].map(date_by_issue)
     actual_dates = pd.to_datetime(result["draw_date"], errors="coerce")
-    if expected_dates.isna().any() or actual_dates.isna().any() or not actual_dates.dt.normalize().equals(expected_dates.dt.normalize()):
+    if (
+        expected_dates.isna().any()
+        or actual_dates.isna().any()
+        or not actual_dates.dt.normalize().equals(expected_dates.dt.normalize())
+    ):
         raise ValueError("prize_features.draw_date 与相同期号的开奖日期不一致。")
-    return result.sort_values(["draw_index", "prize_rank", "prize_event_type"], kind="mergesort").reset_index(drop=True)
+    return result.sort_values(
+        ["draw_index", "prize_rank", "prize_event_type"], kind="mergesort"
+    ).reset_index(drop=True)
 
 
 def validate_feature_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
@@ -410,9 +594,20 @@ def validate_feature_columns_against_metadata(
     metadata_names = set(definitions) if isinstance(definitions, Mapping) else set()
     identifiers = {
         "draw_features": {"draw_index", "issue", "draw_date"},
-        "number_features": {"draw_index", "issue", "draw_date", "number_zone", "number"},
+        "number_features": {
+            "draw_index",
+            "issue",
+            "draw_date",
+            "number_zone",
+            "number",
+        },
         "prize_features": {
-            "draw_index", "issue", "draw_date", "rule_version", "prize_rank", "prize_event_type"
+            "draw_index",
+            "issue",
+            "draw_date",
+            "rule_version",
+            "prize_rank",
+            "prize_event_type",
         },
     }
     frames = {
@@ -421,10 +616,14 @@ def validate_feature_columns_against_metadata(
         "prize_features": prize_features,
     }
     missing_by_table = {
-        table_name: sorted(set(frame.columns) - identifiers[table_name] - metadata_names)
+        table_name: sorted(
+            set(frame.columns) - identifiers[table_name] - metadata_names
+        )
         for table_name, frame in frames.items()
     }
-    missing_by_table = {name: fields for name, fields in missing_by_table.items() if fields}
+    missing_by_table = {
+        name: fields for name, fields in missing_by_table.items() if fields
+    }
     if missing_by_table:
         raise ValueError(
             "Feature 输出中存在未在 feature_metadata.json 中定义的字段: "
