@@ -11,13 +11,12 @@ import pandas as pd
 
 from ...config import (
     BLUE_COLUMNS,
-    RED_COLUMNS,
-    PRIZE_EVENT_TYPES,
-    RULE_VERSIONS,
     BONUS_CAMPAIGNS,
+    PRIZE_EVENT_TYPES,
+    RED_COLUMNS,
+    RULE_VERSIONS,
 )
-
-from ..utils import normalize_issue_series
+from ..utils import normalize_issue_series, validate_required_columns
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,38 +56,6 @@ PRIZE_REQUIRED_INPUT_COLUMNS = (
 )
 
 
-def _require_columns(
-    df: pd.DataFrame, required: tuple[str, ...], table_name: str
-) -> None:
-    """检查分析所需字段，缺失时提供明确的字段名。"""
-    missing = [column for column in required if column not in df.columns]
-    if missing:
-        raise ValueError(f"{table_name} 缺少必需字段: {missing}")
-
-
-def issue_number(issue: Any) -> int:
-    """将数字型期号转为整数，用于历史规则边界验证。"""
-    text = str(issue).strip()
-    if text.isdigit():
-        return int(text)
-    # 一些数值型 Parquet 读回时可能将含空值的整数列提升为 26014.0。
-    if text.endswith(".0") and text[:-2].isdigit():
-        return int(text[:-2])
-    raise ValueError(f"期号不是可识别的整数，无法验证规则版本: {issue!r}")
-
-
-def expected_rule_version(issue: Any) -> str:
-    """根据 PROJECT_CONTEXT 中定义的期号边界返回规则版本。"""
-    number = issue_number(issue)
-    if number <= 14051:
-        return "v1"
-    if number <= 19018:
-        return "v2"
-    if number <= 26013:
-        return "v3"
-    return "v4"
-
-
 def validate_draws(draws_df: pd.DataFrame) -> pd.DataFrame:
     """验证 processed draws 契约，并返回按时间升序排列的副本。
 
@@ -105,7 +72,9 @@ def validate_draws(draws_df: pd.DataFrame) -> pd.DataFrame:
         raise TypeError("draws_df 必须是 pandas.DataFrame。")
     if draws_df.empty:
         raise ValueError("processed draws 为空，无法开展 Analysis。")
-    _require_columns(draws_df, DRAW_REQUIRED_INPUT_COLUMNS, "processed draws")
+    validate_required_columns(
+        tuple(draws_df.columns), DRAW_REQUIRED_INPUT_COLUMNS, "draws"
+    )
 
     result = draws_df.copy()
     result["issue"] = normalize_issue_series(result["issue"], "draws_processed")
@@ -213,7 +182,9 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
     """验证奖级记录、规则版本和事件类型。"""
     if not isinstance(prizes_df, pd.DataFrame):
         raise TypeError("prizes_df 必须是 pandas.DataFrame。")
-    _require_columns(prizes_df, PRIZE_REQUIRED_INPUT_COLUMNS, "processed prizes")
+    validate_required_columns(
+        tuple(prizes_df.columns), PRIZE_REQUIRED_INPUT_COLUMNS, "prizes"
+    )
     result = prizes_df.copy()
     if result.empty:
         LOGGER.warning("processed prizes 为空；本次运行只会输出空奖金摘要。")
@@ -229,7 +200,7 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
         )
 
     invalid_events = sorted(
-        set(result["prize_event_type"].dropna().astype(str)) - PRIZE_EVENT_TYPES
+        set(result["prize_event_type"].dropna().astype(str)) - set(PRIZE_EVENT_TYPES)
     )
     if invalid_events or result["prize_event_type"].isna().any():
         raise ValueError(
@@ -314,17 +285,18 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
         raise ValueError("prizes.issue 必须是可识别的整数期号。")
 
     expected_versions = pd.Series(
-        # TODO 此处更改逻辑，对 expected_versions 的结果输出查看验证是否存在问题
+        # TODO 此处更改逻辑，对 expected_versions 的结果输出查看验证是否存在问题，查看 default=np.nan 的默认值问题
         np.select(
             [
                 issue_numbers.between(rule.start_issue, rule.end_issue)
                 for rule in RULE_VERSIONS
             ],
             [rule.name for rule in RULE_VERSIONS],
-            default=None,
+            default="unknow",
         ),
         index=result.index,
-    )
+    ).astype(str)
+
     mismatch_mask = result["rule_version"].astype(str).ne(expected_versions)
     if mismatch_mask.any():
         mismatch = result.loc[mismatch_mask, ["issue", "rule_version"]].head(5).copy()
@@ -376,7 +348,9 @@ def validate_draw_features(
     feature_df: pd.DataFrame, draws_df: pd.DataFrame
 ) -> pd.DataFrame:
     """验证 Draw-level Feature 键和覆盖范围。"""
-    _require_columns(feature_df, ("draw_index", "issue", "draw_date"), "draw_features")
+    validate_required_columns(
+        tuple(feature_df.columns), ("draw_index", "issue", "draw_date"), "draw_features"
+    )
     result = feature_df.copy()
     result["issue"] = normalize_issue_series(result["issue"], "draw_features")
     if result["draw_index"].duplicated().any() or result["issue"].duplicated().any():
@@ -417,7 +391,7 @@ def validate_number_features(
 ) -> pd.DataFrame:
     """验证 Number-level Feature 长表键、号码范围与完整实体覆盖。"""
     required = ("draw_index", "issue", "draw_date", "number_zone", "number")
-    _require_columns(feature_df, required, "number_features")
+    validate_required_columns(tuple(feature_df.columns), required, "number_features")
     result = feature_df.copy()
     result["issue"] = normalize_issue_series(result["issue"], "number_features")
     result["number"] = pd.to_numeric(result["number"], errors="coerce")
@@ -514,7 +488,7 @@ def validate_prize_features(
         "prize_rank",
         "prize_event_type",
     )
-    _require_columns(feature_df, required, "prize_features")
+    validate_required_columns(tuple(feature_df.columns), required, "prize_features")
     result = feature_df.copy()
     result["issue"] = normalize_issue_series(result["issue"], "prize_features")
     if len(result) != len(prizes_df):

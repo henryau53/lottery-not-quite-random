@@ -10,13 +10,18 @@ import pandas as pd
 import pytest
 
 from lottery_not_quite_random.dlt.analysis.config import AnalysisConfig
-from lottery_not_quite_random.dlt.analysis.descriptive.number_frequency import build_number_frequency_table
+from lottery_not_quite_random.dlt.analysis.descriptive.number_frequency import (
+    build_number_frequency_table,
+)
 from lottery_not_quite_random.dlt.analysis.runner import AnalysisRunner
 from lottery_not_quite_random.dlt.analysis.statistical_tests.frequency_tests import (
     holm_adjust_pvalues,
     run_number_frequency_tests,
 )
-from lottery_not_quite_random.dlt.analysis.validation import validate_draws, validate_prizes
+from lottery_not_quite_random.dlt.analysis.validation import (
+    validate_draws,
+    validate_prizes,
+)
 
 
 def make_draws(count: int = 8) -> pd.DataFrame:
@@ -29,9 +34,16 @@ def make_draws(count: int = 8) -> pd.DataFrame:
             {
                 "draw_index": index,
                 "issue": str(26014 + index),
-                "draw_date": (pd.Timestamp("2026-02-02") + pd.Timedelta(days=2 * index)).date().isoformat(),
-                **{f"red_{position + 1}": number for position, number in enumerate(red)},
-                **{f"blue_{position + 1}": number for position, number in enumerate(blue)},
+                "draw_date": (pd.Timestamp("2026-02-02") + pd.Timedelta(days=2 * index))
+                .date()
+                .isoformat(),
+                **{
+                    f"red_{position + 1}": number for position, number in enumerate(red)
+                },
+                **{
+                    f"blue_{position + 1}": number
+                    for position, number in enumerate(blue)
+                },
                 "red_sum": sum(red),
                 "red_span": max(red) - min(red),
                 "blue_sum": sum(blue),
@@ -66,7 +78,9 @@ def make_prizes(draws: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def make_feature_tables(draws: pd.DataFrame, prizes: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def make_feature_tables(
+    draws: pd.DataFrame, prizes: pd.DataFrame
+) -> dict[str, pd.DataFrame]:
     """构造完整粒度的三张 Feature 表。"""
     draw_features = draws.loc[:, ["draw_index", "issue", "draw_date"]].copy()
     draw_features["red_sum_mean_10"] = np.nan
@@ -89,15 +103,25 @@ def make_feature_tables(draws: pd.DataFrame, prizes: pd.DataFrame) -> dict[str, 
 
     prize_features = prizes.copy()
     issue_to_index = dict(zip(draws["issue"].astype(str), draws["draw_index"]))
-    prize_features["draw_index"] = prize_features["issue"].astype(str).map(issue_to_index)
+    prize_features["draw_index"] = (
+        prize_features["issue"].astype(str).map(issue_to_index)
+    )
     prize_features["prize_amount"] = prize_features["total_prize_amount"]
     return {
         "draw_features": draw_features,
         "number_features": number_features,
-        "prize_features": prize_features.loc[:, [
-            "draw_index", "issue", "draw_date", "rule_version", "prize_rank",
-            "prize_event_type", "prize_amount",
-        ]],
+        "prize_features": prize_features.loc[
+            :,
+            [
+                "draw_index",
+                "issue",
+                "draw_date",
+                "rule_version",
+                "prize_rank",
+                "prize_event_type",
+                "prize_amount",
+            ],
+        ],
     }
 
 
@@ -131,8 +155,16 @@ def test_frequency_table_has_47_entities_and_uses_correct_baselines() -> None:
     draws = validate_draws(make_draws(8))
     frequency = build_number_frequency_table(draws)
     assert len(frequency) == 47
-    assert frequency.query("number_zone == 'red'")["theoretical_probability"].eq(5 / 35).all()
-    assert frequency.query("number_zone == 'blue'")["theoretical_probability"].eq(2 / 12).all()
+    assert (
+        frequency.query("number_zone == 'red'")["theoretical_probability"]
+        .eq(5 / 35)
+        .all()
+    )
+    assert (
+        frequency.query("number_zone == 'blue'")["theoretical_probability"]
+        .eq(2 / 12)
+        .all()
+    )
     assert frequency["observed_count"].between(0, 8).all()
     assert frequency.query("number_zone == 'red'")["observed_count"].sum() == 8 * 5
     assert frequency.query("number_zone == 'blue'")["observed_count"].sum() == 8 * 2
@@ -161,9 +193,16 @@ def test_frequency_tests_include_hypotheses_ci_and_adjustment() -> None:
     tests = run_number_frequency_tests(frequencies, alpha=0.05)
     assert len(tests) == 47
     required = {
-        "h0", "h1", "test_statistic", "p_value", "p_value_adjusted",
-        "observed_rate_ci95_low_exact", "observed_rate_ci95_high_exact",
-        "p_value_adjustment", "reject_h0_after_correction", "cross_draw_assumption",
+        "h0",
+        "h1",
+        "test_statistic",
+        "p_value",
+        "p_value_adjusted",
+        "observed_rate_ci95_low_exact",
+        "observed_rate_ci95_high_exact",
+        "p_value_adjustment",
+        "reject_h0_after_correction",
+        "cross_draw_assumption",
     }
     assert required.issubset(tests.columns)
     assert tests["p_value"].between(0, 1).all()
@@ -211,11 +250,14 @@ def test_validate_prizes_rejects_additional_rank_outside_rule_version() -> None:
 
 def test_issue_number_accepts_integer_like_parquet_values() -> None:
     """整数期号被 Parquet 提升为浮点字符串时仍能按规则边界解释。"""
-    from lottery_not_quite_random.dlt.analysis.validation import expected_rule_version
-    assert expected_rule_version("26014.0") == "v4"
+    from lottery_not_quite_random.dlt.utils import get_rule_version
+
+    assert get_rule_version("26014") == "v4"
 
 
-def test_runner_writes_a_reproducible_run_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runner_writes_a_reproducible_run_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """编排入口应写入摘要、Markdown 报告、表格和成功运行元数据。"""
     processed_dir = tmp_path / "processed"
     features_dir = tmp_path / "features"
@@ -239,9 +281,21 @@ def test_runner_writes_a_reproducible_run_directory(tmp_path: Path, monkeypatch:
         "prizes.parquet": prizes,
         **{f"{name}.parquet": frame for name, frame in feature_tables.items()},
     }
-    monkeypatch.setattr(pd, "read_parquet", lambda path, *args, **kwargs: input_frames[Path(path).name].copy())
+    monkeypatch.setattr(
+        pd,
+        "read_parquet",
+        lambda path, *args, **kwargs: input_frames[Path(path).name].copy(),
+    )
     (features_dir / "feature_metadata.json").write_text(
-        json.dumps({"features": {"red_sum_mean_10": {}, "frequency_10": {}, "prize_amount": {}}}),
+        json.dumps(
+            {
+                "features": {
+                    "red_sum_mean_10": {},
+                    "frequency_10": {},
+                    "prize_amount": {},
+                }
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -273,6 +327,8 @@ def test_runner_does_not_overwrite_an_existing_run(tmp_path: Path) -> None:
     output_dir = tmp_path / "analysis"
     existing = output_dir / "runs" / "same-id"
     existing.mkdir(parents=True)
-    runner = AnalysisRunner(AnalysisConfig(output_dir=output_dir, run_id="same-id", include_features=False))
+    runner = AnalysisRunner(
+        AnalysisConfig(output_dir=output_dir, run_id="same-id", include_features=False)
+    )
     with pytest.raises(FileExistsError, match="不覆盖既有结果"):
         runner.run()

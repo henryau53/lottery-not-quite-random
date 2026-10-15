@@ -31,9 +31,9 @@ from ..config import (
     DLT_RAW_DRAWS_FILE,
     PRIZE_EVENT_TYPES,
     PRIZE_RANK_MAPPING,
-    RULE_VERSIONS,
 )
 from ..utils import load_json
+from .utils import get_rule_version
 
 logger = logging.getLogger(__name__)
 
@@ -309,27 +309,6 @@ def calculate_consecutive_features(
     return group_count, max_length
 
 
-def get_prize_rule_version(issue: str) -> str:
-    """根据期号获取奖级规则版本。
-
-    Args:
-        issue (str): 期号
-
-    Raises:
-        ValueError: 无法确定奖级规则版本
-
-    Returns:
-        str: 奖级规则版本
-    """
-    issue_number = int(issue)
-
-    for rule in RULE_VERSIONS:
-        if rule.matches(issue_number):
-            return rule.name
-
-    raise ValueError(f"无法确定奖级规则版本: {issue}")
-
-
 def parse_prize_name(prize_level: str) -> tuple[int, str]:
     """解析奖级编号和标准名称。
 
@@ -556,7 +535,7 @@ def transform_prize_record(
     """
     issue = str(record["lotteryDrawNum"])
     draw_date = date.fromisoformat(record["lotteryDrawTime"])
-    rule_version = get_prize_rule_version(issue)
+    rule_version = get_rule_version(issue)
 
     result = []
 

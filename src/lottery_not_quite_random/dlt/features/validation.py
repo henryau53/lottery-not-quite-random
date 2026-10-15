@@ -14,6 +14,7 @@ import logging
 import pandas as pd
 
 from ...config import BLUE_COLUMNS, PRIZE_EVENT_TYPES, RED_COLUMNS, RULE_VERSION_NAMES
+from ..utils import validate_required_columns
 
 LOGGER = logging.getLogger(__name__)
 
@@ -63,13 +64,9 @@ def validate_draw_input(draws_df: pd.DataFrame) -> None:
         ValueError:
             当输入不满足项目数据质量契约时。
     """
-    missing = [
-        column
-        for column in DRAW_REQUIRED_INPUT_COLUMNS
-        if column not in draws_df.columns
-    ]
-    if missing:
-        raise ValueError(f"draws 缺少必需字段: {missing}")
+    validate_required_columns(
+        tuple(draws_df.columns), DRAW_REQUIRED_INPUT_COLUMNS, "draws"
+    )
 
     expected_index = list(range(len(draws_df)))
     actual_index = draws_df["draw_index"].astype(int).tolist()
@@ -118,14 +115,9 @@ def validate_prize_input(prizes_df: pd.DataFrame) -> None:
             当必需字段缺失、字段为空或字段值非法时。
     """
 
-    missing = [
-        column
-        for column in PRIZE_REQUIRED_INPUT_COLUMNS
-        if column not in prizes_df.columns
-    ]
-
-    if missing:
-        raise ValueError(f"prizes 缺少必需字段: {missing}")
+    validate_required_columns(
+        tuple(prizes_df.columns), PRIZE_REQUIRED_INPUT_COLUMNS, "prizes"
+    )
 
     if "draw_index" in prizes_df.columns and prizes_df["draw_index"].isna().any():
         raise ValueError("prizes.draw_index 不允许为空。")

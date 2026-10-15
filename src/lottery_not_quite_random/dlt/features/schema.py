@@ -13,6 +13,7 @@ from ...config import (
     FEATURE_REPEAT_WINDOWS,
     FEATURE_ROLLING_WINDOWS,
 )
+from ..utils import validate_required_columns
 from .rolling import ROLLING_SOURCES
 
 
@@ -36,20 +37,14 @@ class FeatureSchema:
     feature_columns: tuple[str, ...]
     nullable_columns: tuple[str, ...] = ()
 
-    def validate_columns(self, columns: list[str]) -> None:
+    def validate_columns(self, columns: tuple[str, ...] | list[str]) -> None:
         """验证必需字段是否全部存在。
 
         Args:
             columns:
                 DataFrame 当前字段名。
-
-        Raises:
-            ValueError:
-                当必需字段缺失时。
         """
-        missing = [column for column in self.required_columns if column not in columns]
-        if missing:
-            raise ValueError(f"缺少必需字段: {missing}")
+        validate_required_columns(columns, self.required_columns, "feature_schema")
 
 
 def build_draw_schema() -> FeatureSchema:
