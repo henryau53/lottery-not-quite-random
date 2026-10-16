@@ -18,7 +18,7 @@ from ...config import (
     RuleVersion,
 )
 
-from ..utils import normalize_issue_series
+from ..utils import normalize_integer_series
 
 
 @dataclass(frozen=True)
@@ -128,8 +128,10 @@ def build_draw_context(draws_df: pd.DataFrame) -> pd.DataFrame:
     """
     context_df = draws_df.loc[:, ["draw_index", "issue", "draw_date"]].copy()
 
-    issue_numbers = normalize_issue_series(
-        context_df["issue"], table_name="draws_processed"
+    issue_numbers = normalize_integer_series(
+        context_df["issue"],
+        label="draws_processed",
+        field_name="issue",
     )
 
     context_df["rule_version"] = issue_numbers.map(get_rule_version)

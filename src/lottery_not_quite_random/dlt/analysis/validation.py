@@ -16,15 +16,22 @@ from ...config import (
     RED_COLUMNS,
     RULE_VERSIONS,
 )
-from ..utils import normalize_issue_series, validate_required_columns
+from ..utils import normalize_integer_series, validate_required_columns
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # 开奖数据文件必须存在的字段
 DRAW_REQUIRED_INPUT_COLUMNS = (
     "draw_index",
     "issue",
     "draw_date",
+    "red_1",
+    "red_2",
+    "red_3",
+    "red_4",
+    "red_5",
+    "blue_1",
+    "blue_2",
     "red_sum",
     "blue_sum",
     "red_span",
@@ -33,13 +40,6 @@ DRAW_REQUIRED_INPUT_COLUMNS = (
     "blue_odd_count",
     "red_consecutive_group_count",
     "red_max_consecutive_length",
-    "red_1",
-    "red_2",
-    "red_3",
-    "red_4",
-    "red_5",
-    "blue_1",
-    "blue_2",
 )
 
 # FIXME 这里与 feature 阶段 validation 中的 PRIZE_REQUIRED_INPUT_COLUMNS 字段不相同
@@ -56,125 +56,195 @@ PRIZE_REQUIRED_INPUT_COLUMNS = (
 )
 
 
-def validate_draws(draws_df: pd.DataFrame) -> pd.DataFrame:
-    """验证 processed draws 契约，并返回按时间升序排列的副本。
+def validate_draw_input(draws_df: pd.DataFrame) -> pd.DataFrame:
+    """验证并规范化 Analysis 层使用的开奖数据。
+
+    验证必需字段、开奖序号、期号、开奖日期、红蓝球取值范围、
+    单期开奖号码唯一性及可选统计字段，并返回按 draw_index
+    排序的副本。
 
     Args:
-        draws_df: 从 processed/draws.parquet 读取的数据。
+        draws_df: 已处理的开奖数据。
 
     Returns:
-        按 draw_index 升序排列的独立 DataFrame 副本。
+        pd.DataFrame: 通过校验、期号和开奖序号规范化，
+            并按 draw_index 排序的 DataFrame 副本。
 
     Raises:
-        ValueError: 当关键字段、键、时间顺序或大乐透号码约束不满足时。
+        TypeError: 输入不是 pandas DataFrame。
+        ValueError: 数据缺少必需字段，或未满足数据契约。
     """
     if not isinstance(draws_df, pd.DataFrame):
-        raise TypeError("draws_df 必须是 pandas.DataFrame。")
-    if draws_df.empty:
-        raise ValueError("processed draws 为空，无法开展 Analysis。")
+        raise TypeError("draws：输入必须是 pandas DataFrame。")
+
     validate_required_columns(
-        tuple(draws_df.columns), DRAW_REQUIRED_INPUT_COLUMNS, "draws"
+        columns=tuple(draws_df.columns),
+        required=DRAW_REQUIRED_INPUT_COLUMNS,
+        label="draws",
     )
 
+    if draws_df.empty:
+        raise ValueError("draws：输入数据为空。")
+
     result = draws_df.copy()
-    result["issue"] = normalize_issue_series(result["issue"], "draws_processed")
-    if result["draw_index"].isna().any():
-        raise ValueError("draws.draw_index 存在空值。")
-    numeric_index = pd.to_numeric(result["draw_index"], errors="coerce")
-    if (
-        numeric_index.isna().any()
-        or not np.equal(numeric_index, np.floor(numeric_index)).all()
-    ):
-        raise ValueError("draws.draw_index 必须全部为整数。")
-    result["draw_index"] = numeric_index.astype("int64")
+
+    # -------------------------------------------------------------------------
+    # 开奖索引校验
+    # -------------------------------------------------------------------------
+    result["draw_index"] = normalize_integer_series(
+        series=result["draw_index"],
+        label="draws",
+        field_name="draw_index",
+    )
 
     if result["draw_index"].duplicated().any():
-        duplicate_values = result.loc[
-            result["draw_index"].duplicated(keep=False), "draw_index"
-        ].tolist()
-        raise ValueError(
-            f"draws.draw_index 必须唯一；重复值示例: {duplicate_values[:5]}"
-        )
-    if result["issue"].duplicated().any():
-        duplicate_values = (
-            result.loc[result["issue"].duplicated(keep=False), "issue"]
-            .astype(str)
+        duplicate_indices = (
+            result.loc[
+                result["draw_index"].duplicated(keep=False),
+                "draw_index",
+            ]
+            .drop_duplicates()
             .tolist()
         )
-        raise ValueError(f"draws.issue 必须唯一；重复值示例: {duplicate_values[:5]}")
+        raise ValueError(f"draws：draw_index 存在重复值 {duplicate_indices}。")
 
     expected_indices = np.arange(len(result), dtype=np.int64)
-    actual_indices = np.sort(result["draw_index"].to_numpy())
+    actual_indices = np.sort(result["draw_index"].to_numpy(dtype=np.int64))
+
     if not np.array_equal(actual_indices, expected_indices):
-        raise ValueError(
-            "draws.draw_index 必须从 0 开始连续递增；"
-            f"当前范围为 {actual_indices.min()}..{actual_indices.max()}，行数={len(result)}。"
-        )
+        raise ValueError("draws：draw_index 必须按照当前行顺序从 0 开始连续递增。")
 
-    dates = pd.to_datetime(result["draw_date"], errors="coerce")
+    # -------------------------------------------------------------------------
+    # 期号校验
+    # -------------------------------------------------------------------------
+    result["issue"] = normalize_integer_series(
+        series=result["issue"],
+        label="draws",
+        field_name="issue",
+    )
+
+    if result["issue"].duplicated().any():
+        raise ValueError("draws：issue 存在重复值。")
+
+    # -------------------------------------------------------------------------
+    # draw_index 排序
+    # -------------------------------------------------------------------------
+    result = result.sort_values(
+        "draw_index",
+        kind="stable",
+    ).reset_index(drop=True)
+
+    # -------------------------------------------------------------------------
+    # 开奖日期校验
+    # -------------------------------------------------------------------------
+    dates = pd.to_datetime(
+        result["draw_date"],
+        errors="coerce",
+        utc=True,
+    )
+
     if dates.isna().any():
-        bad_rows = result.loc[dates.isna(), ["draw_index", "issue", "draw_date"]].head(
-            5
+        raise ValueError("draws：draw_date 存在空值或无法解析的日期。")
+
+    if not dates.is_monotonic_increasing:
+        raise ValueError("draws：draw_date 必须按照 draw_index 的顺序单调递增。")
+
+    # -------------------------------------------------------------------------
+    # 红蓝号码校验
+    # -------------------------------------------------------------------------
+    number_columns = {
+        **{column: (1, 35) for column in RED_COLUMNS},
+        **{column: (1, 12) for column in BLUE_COLUMNS},
+    }
+
+    number_values: dict[str, np.ndarray] = {}
+
+    for column, (minimum, maximum) in number_columns.items():
+        values = normalize_integer_series(
+            series=result[column],
+            label="draws",
+            field_name=column,
         )
+
+        numeric_values = values.to_numpy(dtype=np.int64)
+
+        invalid_mask = (numeric_values < minimum) | (numeric_values > maximum)
+
+        if invalid_mask.any():
+            invalid_values = sorted(set(numeric_values[invalid_mask].tolist()))
+            raise ValueError(
+                f"draws：{column} 存在超出合法范围 "
+                f"[{minimum}, {maximum}] 的值 {invalid_values}。"
+            )
+
+        number_values[column] = numeric_values
+        result[column] = values
+
+    # 每期红球不得重复。
+    red_values = np.column_stack([number_values[column] for column in RED_COLUMNS])
+
+    duplicate_red_mask = np.array(
+        [len(set(row)) != len(RED_COLUMNS) for row in red_values],
+        dtype=bool,
+    )
+
+    if duplicate_red_mask.any():
+        duplicate_indices = result.loc[
+            duplicate_red_mask,
+            "draw_index",
+        ].tolist()
+
         raise ValueError(
-            f"draws.draw_date 存在空值或无效日期，示例: {bad_rows.to_dict('records')}"
+            f"draws：同一期存在重复红球，对应 draw_index 为 {duplicate_indices}。"
         )
-    result["__analysis_date"] = dates
-    result = result.sort_values("draw_index", kind="mergesort").reset_index(drop=True)
-    if not result["__analysis_date"].is_monotonic_increasing:
-        bad_position = np.flatnonzero(
-            result["__analysis_date"].diff().dt.total_seconds().fillna(0).lt(0)
+
+    # 每期蓝球不得重复。
+    blue_values = np.column_stack([number_values[column] for column in BLUE_COLUMNS])
+
+    duplicate_blue_mask = np.array(
+        [len(set(row)) != len(BLUE_COLUMNS) for row in blue_values],
+        dtype=bool,
+    )
+
+    if duplicate_blue_mask.any():
+        duplicate_indices = result.loc[
+            duplicate_blue_mask,
+            "draw_index",
+        ].tolist()
+
+        raise ValueError(
+            f"draws：同一期存在重复蓝球，对应 draw_index 为 {duplicate_indices}。"
         )
-        examples = result.loc[
-            bad_position[:5], ["draw_index", "issue", "draw_date"]
-        ].to_dict("records")
-        raise ValueError(f"draw_index 与 draw_date 时间方向不一致，示例: {examples}")
-    result = result.drop(columns="__analysis_date")
-    result["issue"] = normalize_issue_series(result["issue"], "draws_processed")
 
-    for column in (*RED_COLUMNS, *BLUE_COLUMNS):
-        numeric = pd.to_numeric(result[column], errors="coerce")
-        if numeric.isna().any() or not np.equal(numeric, np.floor(numeric)).all():
-            raise ValueError(f"draws.{column} 必须全部为非空整数号码。")
-        result[column] = numeric.astype("int64")
+    # -------------------------------------------------------------------------
+    # 统计字段校验
+    # -------------------------------------------------------------------------
+    statistic_columns = (
+        "red_sum",
+        "red_span",
+        "blue_sum",
+        "blue_span",
+        "red_odd_count",
+        "red_even_count",
+        "blue_odd_count",
+        "blue_even_count",
+        "red_zone_1_count",
+        "red_zone_2_count",
+        "red_zone_3_count",
+        "red_consecutive_group_count",
+        "red_max_consecutive_length",
+    )
 
-    red_values = result.loc[:, RED_COLUMNS].to_numpy(dtype=np.int64)
-    blue_values = result.loc[:, BLUE_COLUMNS].to_numpy(dtype=np.int64)
-    if ((red_values < 1) | (red_values > 35)).any():
-        raise ValueError("前区号码必须位于 1..35；发现越界号码。")
-    if ((blue_values < 1) | (blue_values > 12)).any():
-        raise ValueError("后区号码必须位于 1..12；发现越界号码。")
-    if any(len(set(row.tolist())) != 5 for row in red_values):
-        raise ValueError("每期前区必须包含 5 个互不重复号码。")
-    if any(len(set(row.tolist())) != 2 for row in blue_values):
-        raise ValueError("每期后区必须包含 2 个互不重复号码。")
+    for column in statistic_columns:
+        if column not in result.columns:
+            continue
 
-    numeric_fields = [
-        column
-        for column in (
-            "red_sum",
-            "red_span",
-            "blue_sum",
-            "blue_span",
-            "red_odd_count",
-            "red_even_count",
-            "blue_odd_count",
-            "blue_even_count",
-            "red_zone_1_count",
-            "red_zone_2_count",
-            "red_zone_3_count",
-            "red_consecutive_group_count",
-            "red_max_consecutive_length",
+        result[column] = normalize_integer_series(
+            series=result[column],
+            label="draws",
+            field_name=column,
         )
-        if column in result.columns
-    ]
-    for column in numeric_fields:
-        numeric = pd.to_numeric(result[column], errors="coerce")
-        if numeric.isna().any():
-            raise ValueError(f"draws.{column} 存在无法用于统计的空值或非数值。")
-        result[column] = numeric
 
-    LOGGER.debug("验证 processed draws 成功：%d 行。", len(result))
     return result
 
 
@@ -187,11 +257,15 @@ def validate_prizes(prizes_df: pd.DataFrame, draws_df: pd.DataFrame) -> pd.DataF
     )
     result = prizes_df.copy()
     if result.empty:
-        LOGGER.warning("processed prizes 为空；本次运行只会输出空奖金摘要。")
+        logger.warning("processed prizes 为空；本次运行只会输出空奖金摘要。")
         result["issue"] = result["issue"].astype("string")
         return result
 
-    result["issue"] = normalize_issue_series(result["issue"], "prizes_processed")
+    result["issue"] = normalize_integer_series(
+        result["issue"],
+        label="prizes_processed",
+        field_name="issue",
+    )
     draw_issues = set(draws_df["issue"].astype(str))
     unknown_issues = sorted(set(result["issue"].astype(str)) - draw_issues)
     if unknown_issues:
@@ -352,7 +426,11 @@ def validate_draw_features(
         tuple(feature_df.columns), ("draw_index", "issue", "draw_date"), "draw_features"
     )
     result = feature_df.copy()
-    result["issue"] = normalize_issue_series(result["issue"], "draw_features")
+    result["issue"] = normalize_integer_series(
+        result["issue"],
+        label="draw_features",
+        field_name="issue",
+    )
     if result["draw_index"].duplicated().any() or result["issue"].duplicated().any():
         raise ValueError(
             "draw_features 应为一行一个开奖期；draw_index 和 issue 必须唯一。"
@@ -393,7 +471,11 @@ def validate_number_features(
     required = ("draw_index", "issue", "draw_date", "number_zone", "number")
     validate_required_columns(tuple(feature_df.columns), required, "number_features")
     result = feature_df.copy()
-    result["issue"] = normalize_issue_series(result["issue"], "number_features")
+    result["issue"] = normalize_integer_series(
+        result["issue"],
+        label="number_features",
+        field_name="issue",
+    )
     result["number"] = pd.to_numeric(result["number"], errors="coerce")
     if (
         result["number"].isna().any()
@@ -490,7 +572,11 @@ def validate_prize_features(
     )
     validate_required_columns(tuple(feature_df.columns), required, "prize_features")
     result = feature_df.copy()
-    result["issue"] = normalize_issue_series(result["issue"], "prize_features")
+    result["issue"] = normalize_integer_series(
+        result["issue"],
+        label="prize_features",
+        field_name="issue",
+    )
     if len(result) != len(prizes_df):
         raise ValueError(
             "prize_features 必须保持 prize record 粒度；"

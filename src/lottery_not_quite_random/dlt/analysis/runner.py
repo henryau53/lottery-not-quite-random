@@ -17,14 +17,17 @@ import scipy
 from . import __version__
 from .config import AnalysisConfig
 from .descriptive.data_overview import build_data_overview, build_prize_summary
-from .descriptive.draw_distribution import build_draw_distribution_summary, build_draw_value_distribution
+from .descriptive.draw_distribution import (
+    build_draw_distribution_summary,
+    build_draw_value_distribution,
+)
 from .descriptive.number_frequency import build_number_frequency_table
 from .reporting.plots import build_plots
 from .reporting.summary import build_markdown_report, build_summary_document, write_json
 from .statistical_tests.frequency_tests import run_number_frequency_tests
 from .validation import (
     validate_draw_features,
-    validate_draws,
+    validate_draw_input,
     validate_feature_columns_against_metadata,
     validate_feature_metadata,
     validate_number_features,
@@ -32,7 +35,7 @@ from .validation import (
     validate_prizes,
 )
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class AnalysisRunner:
@@ -57,7 +60,9 @@ class AnalysisRunner:
             ValueError: 当输入违反 Analysis 数据契约时。
             Exception: 输入读取或分析阶段的底层异常会记录到元数据后继续抛出。
         """
-        run_id = self.config.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_id = self.config.run_id or datetime.now(timezone.utc).strftime(
+            "%Y%m%dT%H%M%SZ"
+        )
         run_dir = self.config.output_dir / "runs" / run_id
         if run_dir.exists():
             raise FileExistsError(
@@ -100,12 +105,16 @@ class AnalysisRunner:
             input_paths = self._expected_input_paths()
             for label, path in input_paths.items():
                 if not path.is_file():
-                    raise FileNotFoundError(f"Analysis 缺少必需输入文件（{label}）: {path}")
+                    raise FileNotFoundError(
+                        f"Analysis 缺少必需输入文件（{label}）: {path}"
+                    )
 
-            LOGGER.info("读取 processed 开奖数据: %s", input_paths["draws"])
-            draws_df = validate_draws(pd.read_parquet(input_paths["draws"]))
-            LOGGER.info("读取 processed 奖级数据: %s", input_paths["prizes"])
-            prizes_df = validate_prizes(pd.read_parquet(input_paths["prizes"]), draws_df)
+            logger.info("读取 processed 开奖数据: %s", input_paths["draws"])
+            draws_df = validate_draw_input(pd.read_parquet(input_paths["draws"]))
+            logger.info("读取 processed 奖级数据: %s", input_paths["prizes"])
+            prizes_df = validate_prizes(
+                pd.read_parquet(input_paths["prizes"]), draws_df
+            )
 
             table_inputs: dict[str, tuple[pd.DataFrame, Path | None]] = {
                 "processed_draws": (draws_df, input_paths["draws"]),
@@ -117,11 +126,17 @@ class AnalysisRunner:
                 for name in ("draw_features", "number_features", "prize_features"):
                     feature_tables[name] = pd.read_parquet(input_paths[name])
 
-                with input_paths["feature_metadata"].open("r", encoding="utf-8") as file:
+                with input_paths["feature_metadata"].open(
+                    "r", encoding="utf-8"
+                ) as file:
                     feature_metadata_doc = validate_feature_metadata(json.load(file))
 
-                feature_tables["draw_features"] = validate_draw_features(feature_tables["draw_features"], draws_df)
-                feature_tables["number_features"] = validate_number_features(feature_tables["number_features"], draws_df)
+                feature_tables["draw_features"] = validate_draw_features(
+                    feature_tables["draw_features"], draws_df
+                )
+                feature_tables["number_features"] = validate_number_features(
+                    feature_tables["number_features"], draws_df
+                )
                 feature_tables["prize_features"] = validate_prize_features(
                     feature_tables["prize_features"], prizes_df, draws_df
                 )
@@ -138,11 +153,15 @@ class AnalysisRunner:
             if feature_metadata_doc is not None:
                 feature_definition_count = len(feature_metadata_doc.get("features", {}))
 
-            overview_df, column_nulls_df = build_data_overview(table_inputs, feature_metadata_doc)
+            overview_df, column_nulls_df = build_data_overview(
+                table_inputs, feature_metadata_doc
+            )
             draw_summary_df = build_draw_distribution_summary(draws_df)
             draw_values_df = build_draw_value_distribution(draws_df)
             frequency_df = build_number_frequency_table(draws_df)
-            frequency_tests_df = run_number_frequency_tests(frequency_df, alpha=self.config.alpha)
+            frequency_tests_df = run_number_frequency_tests(
+                frequency_df, alpha=self.config.alpha
+            )
             prize_summary_df = build_prize_summary(prizes_df, draws_df)
 
             table_frames = {
@@ -156,8 +175,10 @@ class AnalysisRunner:
             }
             for filename, frame in table_frames.items():
                 output_path = tables_dir / filename
-                frame.to_csv(output_path, index=False, encoding="utf-8-sig", float_format="%.12g")
-                LOGGER.info("输出统计表: %s (%d 行)", output_path, len(frame))
+                frame.to_csv(
+                    output_path, index=False, encoding="utf-8-sig", float_format="%.12g"
+                )
+                logger.info("输出统计表: %s (%d 行)", output_path, len(frame))
 
             figure_paths: list[Path] = []
             if self.config.make_plots:
@@ -166,11 +187,16 @@ class AnalysisRunner:
                 except ModuleNotFoundError as error:
                     if error.name != "matplotlib":
                         raise
-                    LOGGER.warning("未安装 matplotlib，跳过 PNG 图形；统计表和报告仍会输出。")
+                    logger.warning(
+                        "未安装 matplotlib，跳过 PNG 图形；统计表和报告仍会输出。"
+                    )
 
             relative_outputs = [
                 str(path.relative_to(run_dir))
-                for path in [*(tables_dir / name for name in table_frames), *figure_paths]
+                for path in [
+                    *(tables_dir / name for name in table_frames),
+                    *figure_paths,
+                ]
             ]
             relative_outputs.extend(["summary.json", "report.md", "run_metadata.json"])
             summary_doc = build_summary_document(
@@ -202,27 +228,37 @@ class AnalysisRunner:
                     }
             metadata["status"] = "completed"
             metadata["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
-            metadata["duration_seconds"] = round(time.perf_counter() - monotonic_start, 6)
+            metadata["duration_seconds"] = round(
+                time.perf_counter() - monotonic_start, 6
+            )
             metadata["outputs"] = sorted(relative_outputs)
             metadata["data_summary"] = {
                 "draw_count": int(len(draws_df)),
                 "prize_record_count": int(len(prizes_df)),
-                "number_frequency_test_count": int(frequency_tests_df["p_value"].notna().sum()),
-                "holm_rejections_at_alpha": int(frequency_tests_df["reject_h0_after_correction"].sum()),
+                "number_frequency_test_count": int(
+                    frequency_tests_df["p_value"].notna().sum()
+                ),
+                "holm_rejections_at_alpha": int(
+                    frequency_tests_df["reject_h0_after_correction"].sum()
+                ),
             }
             write_json(run_dir / "run_metadata.json", metadata)
-            LOGGER.info("Analysis 完成: %s", run_dir)
+            logger.info("Analysis 完成: %s", run_dir)
             return run_dir
         except Exception as error:
             metadata["status"] = "failed"
             metadata["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
-            metadata["duration_seconds"] = round(time.perf_counter() - monotonic_start, 6)
+            metadata["duration_seconds"] = round(
+                time.perf_counter() - monotonic_start, 6
+            )
             metadata["error"] = {"type": type(error).__name__, "message": str(error)}
             metadata["outputs"] = sorted(
-                str(path.relative_to(run_dir)) for path in run_dir.rglob("*") if path.is_file()
+                str(path.relative_to(run_dir))
+                for path in run_dir.rglob("*")
+                if path.is_file()
             )
             write_json(run_dir / "run_metadata.json", metadata)
-            LOGGER.exception("Analysis 失败: %s", error)
+            logger.exception("Analysis 失败: %s", error)
             raise
 
     def _expected_input_paths(self) -> dict[str, Path]:
@@ -235,9 +271,12 @@ class AnalysisRunner:
             paths.update(
                 {
                     "draw_features": self.config.features_dir / "draw_features.parquet",
-                    "number_features": self.config.features_dir / "number_features.parquet",
-                    "prize_features": self.config.features_dir / "prize_features.parquet",
-                    "feature_metadata": self.config.features_dir / "feature_metadata.json",
+                    "number_features": self.config.features_dir
+                    / "number_features.parquet",
+                    "prize_features": self.config.features_dir
+                    / "prize_features.parquet",
+                    "feature_metadata": self.config.features_dir
+                    / "feature_metadata.json",
                 }
             )
         return paths

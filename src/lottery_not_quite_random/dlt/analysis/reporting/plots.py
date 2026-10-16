@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def build_plots(
@@ -37,10 +37,14 @@ def build_plots(
     outputs: list[Path] = []
 
     for zone, theory in (("red", 5 / 35), ("blue", 2 / 12)):
-        subset = frequency_df.loc[frequency_df["number_zone"].eq(zone)].sort_values("number")
+        subset = frequency_df.loc[frequency_df["number_zone"].eq(zone)].sort_values(
+            "number"
+        )
         fig, ax = plt.subplots(figsize=(12, 5))
         ax.bar(subset["number"].astype(int), subset["observed_rate"].astype(float))
-        ax.axhline(theory, linestyle="--", linewidth=1.2, label=f"均匀抽样基准 = {theory:.4f}")
+        ax.axhline(
+            theory, linestyle="--", linewidth=1.2, label=f"均匀抽样基准 = {theory:.4f}"
+        )
         ax.set_title(f"{zone.upper()} 区各号码历史出现比例（描述性）")
         ax.set_xlabel("号码")
         ax.set_ylabel("观测比例")
@@ -66,5 +70,5 @@ def build_plots(
         plt.close(fig)
         outputs.append(path)
 
-    LOGGER.info("已生成 %d 张描述性图形。", len(outputs))
+    logger.info("已生成 %d 张描述性图形。", len(outputs))
     return outputs

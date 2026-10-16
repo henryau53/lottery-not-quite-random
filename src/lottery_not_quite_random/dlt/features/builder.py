@@ -34,7 +34,7 @@ from .validation import (
     validate_prize_input,
 )
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def build_features() -> dict[str, Path]:
@@ -63,7 +63,7 @@ def build_features() -> dict[str, Path]:
     if not DLT_PROCESSED_PRIZES_FILE.exists():
         raise FileNotFoundError(f"缺少 processed prizes: {DLT_PROCESSED_PRIZES_FILE}")
 
-    LOGGER.info(
+    logger.info(
         "读取 processed: draws=%s prizes=%s",
         DLT_PROCESSED_DRAWS_FILE,
         DLT_PROCESSED_PRIZES_FILE,
@@ -79,12 +79,12 @@ def build_features() -> dict[str, Path]:
     prizes_df = pd.read_parquet(DLT_PROCESSED_PRIZES_FILE).copy()
     validate_prize_input(prizes_df)
 
-    LOGGER.info(
+    logger.info(
         "开奖数据输入: rows=%d",
         len(draws_df),
     )
 
-    LOGGER.info(
+    logger.info(
         "奖金数据输入: rows=%d",
         len(prizes_df),
     )
@@ -286,7 +286,7 @@ def build_features() -> dict[str, Path]:
         DLT_FEATURE_METADATA_FILE,
     )
 
-    LOGGER.info(
+    logger.info(
         "Feature 构建完成: draw_rows=%d number_rows=%d prize_rows=%d",
         len(draw_features),
         len(number_features),
