@@ -10,12 +10,21 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import numpy as np
 import pandas as pd
 
-from ...config import BLUE_COLUMNS, PRIZE_EVENT_TYPES, RED_COLUMNS, RULE_VERSION_NAMES
-from ..utils import validate_required_columns, normalize_integer_series
+from ...config import (
+    BLUE_COLUMNS,
+    MAX_ADDITIONAL_RANK_BY_RULE_MAPPING,
+    MAX_RANK_BY_RULE_MAPPING,
+    PRIZE_EVENT_TYPES,
+    RED_COLUMNS,
+    RULE_VERSION_NAMES,
+    RULE_VERSIONS,
+)
+from ..utils import normalize_integer_series, validate_required_columns
 
 logger = logging.getLogger(__name__)
 
@@ -224,41 +233,221 @@ def validate_draw_input(draws_df: pd.DataFrame) -> None:
         )
 
 
-def validate_prize_input(prizes_df: pd.DataFrame) -> None:
-    """验证 processed prizes 数据。
+ADDITIONAL_EVENT_TYPES = {
+    "additional_prize",
+    "additional_bonus",
+}
 
-    校验必需字段是否齐全，prizes.draw_index 是否存在空值，以及
-    rule_version 与 prize_event_type 是否在已知取值范围内。
+PRIZE_EVENT_KEY_COLUMNS = (
+    "issue",
+    "prize_event_type",
+    "prize_rank",
+    "stake_amount",
+)
+
+
+def validate_prize_input(
+    prizes_df: pd.DataFrame,
+    draws_df: pd.DataFrame,
+) -> None:
+    """验证 Feature 层奖金数据，不修改输入数据。
 
     Args:
-        prizes_df:
-            processed/prizes.parquet。
+        prizes_df: 待验证的奖金数据。
+        draws_df: 已通过 validate_draw_input() 校验的开奖数据。
 
     Raises:
-        ValueError:
-            当必需字段缺失、字段为空或字段值非法时。
+        ValueError: 数据缺少必需字段或不符合业务规则。
     """
+    if not isinstance(prizes_df, pd.DataFrame):
+        raise TypeError("prizes：prizes_df 必须是 pandas.DataFrame。")
+
+    if not isinstance(draws_df, pd.DataFrame):
+        raise TypeError("prizes：draws_df 必须是 pandas.DataFrame。")
 
     validate_required_columns(
-        tuple(prizes_df.columns), PRIZE_REQUIRED_INPUT_COLUMNS, "prizes"
+        list(prizes_df.columns),
+        PRIZE_REQUIRED_INPUT_COLUMNS,
+        "prizes",
     )
 
-    if "draw_index" in prizes_df.columns and prizes_df["draw_index"].isna().any():
-        raise ValueError("prizes.draw_index 不允许为空。")
+    if prizes_df.empty:
+        logger.warning("prizes：输入数据为空。")
+        return
 
-    unknown_rules = sorted(
-        set(prizes_df["rule_version"].dropna().astype(str)) - set(RULE_VERSION_NAMES)
+    # 校验非空列
+    for column in (
+        "issue",
+        "draw_date",
+        "rule_version",
+        "prize_event_type",
+        "prize_rank",
+    ):
+        if prizes_df[column].isna().any():
+            raise ValueError(f"prizes：字段 {column} 存在空值。")
+
+    # 校验整数列（仅检查）
+    for column in (
+        "issue",
+        "prize_rank",
+        "stake_count",
+    ):
+        normalize_integer_series(
+            series=prizes_df[column],
+            label="prizes",
+            field_name=column,
+        )
+
+    # 校验规则版本
+    known_rule_versions = set(RULE_VERSION_NAMES)
+    actual_rule_versions = set(prizes_df["rule_version"].unique())
+    unknown_rule_versions = actual_rule_versions - known_rule_versions
+
+    if unknown_rule_versions:
+        raise ValueError(f"prizes：存在未知规则版本：{sorted(unknown_rule_versions)}。")
+
+    # 校验开奖事件类型
+    known_event_types = set(PRIZE_EVENT_TYPES)
+    actual_event_types = set(prizes_df["prize_event_type"].unique())
+    unknown_event_types = actual_event_types - known_event_types
+
+    if unknown_event_types:
+        raise ValueError(
+            f"prizes：存在未知派奖事件类型：{sorted(unknown_event_types)}。"
+        )
+
+    # 验证奖级为正整数，并检查对应规则的奖级上限。
+    if (prizes_df["prize_rank"] <= 0).any():
+        raise ValueError("prizes：prize_rank 必须为正整数。")
+
+    for rule_version, group in prizes_df.groupby("rule_version"):
+        rule_version = cast("str", rule_version)
+        max_rank = MAX_RANK_BY_RULE_MAPPING.get(rule_version)
+        if max_rank is None:
+            raise ValueError(f"prizes：规则版本 {rule_version} 缺少奖级上限配置。")
+
+        if (group["prize_rank"] > max_rank).any():
+            invalid_ranks = sorted(
+                group.loc[
+                    group["prize_rank"] > max_rank,
+                    "prize_rank",
+                ]
+                .unique()
+                .tolist()
+            )
+            raise ValueError(
+                f"prizes：规则版本 {rule_version} 的奖级超出范围，"
+                f"允许的最大奖级为 {max_rank}，异常值：{invalid_ranks}。"
+            )
+
+    # 验证追加投注事件的奖级范围。
+    additional_mask = prizes_df["prize_event_type"].isin(ADDITIONAL_EVENT_TYPES)
+    additional_df = prizes_df.loc[additional_mask]
+
+    for rule_version, group in additional_df.groupby("rule_version"):
+        rule_version = cast("str", rule_version)
+        max_rank = MAX_ADDITIONAL_RANK_BY_RULE_MAPPING.get(rule_version)
+        if max_rank is None:
+            raise ValueError(
+                f"prizes：规则版本 {rule_version} 缺少追加投注奖级上限配置。"
+            )
+
+        if (group["prize_rank"] > max_rank).any():
+            invalid_ranks = sorted(
+                group.loc[
+                    group["prize_rank"] > max_rank,
+                    "prize_rank",
+                ]
+                .unique()
+                .tolist()
+            )
+            raise ValueError(
+                f"prizes：规则版本 {rule_version} 的追加投注奖级超出范围，"
+                f"允许的最大追加投注奖级为 {max_rank}，"
+                f"异常值：{invalid_ranks}。"
+            )
+
+    # 验证期号与规则版本是否匹配。
+    for rule_version in RULE_VERSIONS:
+        name = rule_version.name
+        start_issue = rule_version.start_issue
+        end_issue = rule_version.end_issue
+
+        rule_mask = prizes_df["rule_version"].eq(name)
+        rule_issues = prizes_df.loc[rule_mask, "issue"]
+
+        invalid_mask = (rule_issues < start_issue) | (rule_issues > end_issue)
+        if invalid_mask.any():
+            invalid_issues = sorted(rule_issues.loc[invalid_mask].unique().tolist())
+            raise ValueError(
+                f"prizes：规则版本 {rule_version} 的期号超出适用范围 "
+                f"[{start_issue}, {end_issue}]，"
+                f"异常期号：{invalid_issues}。"
+            )
+
+    # 校验期号与开奖数据的关联。
+    draw_issues = set(draws_df["issue"].tolist())
+    prize_issues = set(prizes_df["issue"].tolist())
+    unmatched_issues = prize_issues - draw_issues
+
+    if unmatched_issues:
+        raise ValueError(
+            f"prizes：以下期号在开奖数据中不存在：{sorted(unmatched_issues)}。"
+        )
+
+    # 校验 draw_date 与开奖数据一致。
+    prize_dates = pd.to_datetime(
+        prizes_df["draw_date"],
+        errors="coerce",
+        utc=True,
+    ).dt.normalize()
+
+    draw_dates = pd.to_datetime(
+        draws_df["draw_date"],
+        errors="coerce",
+        utc=True,
+    ).dt.normalize()
+
+    if prize_dates.isna().any():
+        raise ValueError("prizes：draw_date 存在无法解析的日期。")
+
+    if draw_dates.isna().any():
+        raise ValueError("prizes：开奖数据的 draw_date 存在无法解析的日期。")
+
+    draw_date_by_issue = pd.Series(
+        draw_dates.to_numpy(),
+        index=draws_df["issue"].to_numpy(),
+    )
+    expected_dates = prizes_df["issue"].map(draw_date_by_issue)
+
+    mismatch_mask = prize_dates.ne(
+        pd.to_datetime(expected_dates, utc=True).dt.normalize()
     )
 
-    if unknown_rules:
-        raise ValueError(f"未知奖级规则版本 rule_version: {unknown_rules}")
+    if mismatch_mask.any():
+        mismatch_issues = sorted(
+            prizes_df.loc[mismatch_mask, "issue"].unique().tolist()
+        )
+        raise ValueError(
+            f"prizes：以下期号的 draw_date 与开奖数据不一致：{mismatch_issues}。"
+        )
 
-    unknown_events = sorted(
-        set(prizes_df["prize_event_type"].dropna().astype(str)) - set(PRIZE_EVENT_TYPES)
+    # 校验事件记录是否重复。
+    duplicate_mask = prizes_df.duplicated(
+        subset=list(PRIZE_EVENT_KEY_COLUMNS),
+        keep=False,
     )
+    if duplicate_mask.any():
+        duplicate_records = prizes_df.loc[
+            duplicate_mask,
+            list(PRIZE_EVENT_KEY_COLUMNS),
+        ].to_dict(orient="records")
+        raise ValueError(f"prizes：存在重复的派奖事件记录：{duplicate_records}。")
 
-    if unknown_events:
-        raise ValueError(f"未知奖金事件类型 prize_event_type: {unknown_events}")
+    logger.debug(
+        "prizes：Feature 层奖金数据验证通过，共 %d 条记录。",
+        len(prizes_df),
+    )
 
 
 def validate_feature_output(

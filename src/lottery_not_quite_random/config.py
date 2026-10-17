@@ -144,7 +144,7 @@ BLUE_COLUMNS = tuple(f"blue_{index}" for index in range(1, 3))
 
 
 # ============================================================================
-# 奖级规则版本数据结构
+# 奖级规则相关数据结构
 # ============================================================================
 
 
@@ -166,6 +166,14 @@ class RuleVersion:
             bool: 是否
         """
         return self.start_issue <= issue <= self.end_issue
+
+
+@dataclass(frozen=True)
+class RuleMaxRank:
+    """一个奖级规则版本对应的最大标准奖级编号。"""
+
+    name: str
+    max_rank: int
 
 
 @dataclass(frozen=True)
@@ -211,6 +219,38 @@ RULE_VERSIONS: tuple[RuleVersion, ...] = tuple(
 # 奖级规则版本名称
 RULE_VERSION_NAMES: tuple[str, ...] = tuple(rule.name for rule in RULE_VERSIONS)
 
+
+# ---------------------------------------------------------------------------
+# 奖级规则版本最大标准奖级编号
+# ---------------------------------------------------------------------------
+
+# 奖级规则版本对应的最大标准奖级编号
+MAX_RANK_BY_RULE: tuple[RuleMaxRank, ...] = tuple(
+    RuleMaxRank(
+        name=item["name"],
+        max_rank=item["max_rank"],
+    )
+    for item in _RULES_CONFIG.get("max_rank_by_rule", [])
+)
+
+# 奖级规则版本对应的追加事件类型的最大标准奖级编号
+MAX_ADDITIONAL_RANK_BY_RULE: tuple[RuleMaxRank, ...] = tuple(
+    RuleMaxRank(
+        name=item["name"],
+        max_rank=item["max_rank"],
+    )
+    for item in _RULES_CONFIG.get("max_additional_rank_by_rule", [])
+)
+
+# 奖级规则版本名称 -> 最大标准奖级编号
+MAX_RANK_BY_RULE_MAPPING: dict[str, int] = {
+    rule.name: rule.max_rank for rule in MAX_RANK_BY_RULE
+}
+
+# 奖级规则版本名称 -> 追加事件类型最大标准奖级编号
+MAX_ADDITIONAL_RANK_BY_RULE_MAPPING: dict[str, int] = {
+    rule.name: rule.max_rank for rule in MAX_ADDITIONAL_RANK_BY_RULE
+}
 
 # ---------------------------------------------------------------------------
 # 派奖活动
@@ -276,5 +316,43 @@ def _validate_bonus_campaigns() -> None:
         previous = current
 
 
+def _validate_max_rank_rules(
+    rules: tuple[RuleMaxRank, ...],
+    *,
+    label: str,
+) -> None:
+    """校验最大奖级编号配置。
+
+    Args:
+        rules:
+            满足 RuleMaxRank 结构的规则列表
+        label:
+            用于构造错误信息的数据集名称或前缀。
+
+    Raises:
+        ValueError: 配置未满足预期的错误信息。
+    """
+    names = {rule.name for rule in rules}
+
+    if len(names) != len(rules):
+        raise ValueError(f"{label} 中存在重复的 name")
+
+    for rule in rules:
+        if rule.name not in RULE_VERSION_NAMES:
+            raise ValueError(f"{label} 中的 name {rule.name} 未在奖级规则版本中定义")
+
+        if rule.max_rank <= 0:
+            raise ValueError(f"{label} 中 {rule.name!r} 的 max_rank 必须为正整数")
+
+    missing = set(RULE_VERSION_NAMES) - names
+    if missing:
+        raise ValueError(f"{label} 缺少以下奖级规则版本的配置: {sorted(missing)}")
+
+
 _validate_rule_versions()
 _validate_bonus_campaigns()
+_validate_max_rank_rules(MAX_RANK_BY_RULE, label="max_rank_by_rule")
+_validate_max_rank_rules(
+    MAX_ADDITIONAL_RANK_BY_RULE,
+    label="max_additional_rank_by_rule",
+)
